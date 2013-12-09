@@ -19,10 +19,13 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-(eval-when (:execute :compile-toplevel :load-toplevel) (progn
-							 (ql:quickload :cl-glut)
-							 (ql:quickload :cl-opengl)
-							 (ql:quickload :cl-glu)))
+(eval-when (:execute :compile-toplevel :load-toplevel) 
+  (progn
+    (ql:quickload :cl-glut)
+    (ql:quickload "external-program")
+    (ql:quickload :cl-glu)))
+
+(ql:quickload :bordeaux-threads)
 
 (defpackage :g (:use :cl :gl))
 (in-package :g)
@@ -33,7 +36,7 @@
 
 (defun make-vec (&optional (x 0d0) (y 0d0) (z 0d0))
   (declare ;(type double-float x y z)
-	   (values vec &optional))
+	   #+sbcl (values vec &optional))
   (make-array 3 
 	      :element-type 'double-float
 	      :initial-contents (mapcar #'(lambda (x) (* 1d0 x)) (list x y z))))
@@ -53,7 +56,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 
 (defun v. (a b)
   (declare (type vec a b)
-	   (values double-float &optional))
+	   #+sbcl (values double-float &optional))
   (let ((sum 0d0))
     (declare (type double-float sum))
     (with-arrays (a b)
@@ -68,7 +71,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 (defmacro def-v-op (op)
   `(defun ,(alexandria:format-symbol :g "V~a" op) (a b)
      (declare (type vec a b)
-	      (values vec &optional))
+	      #+sbcl (values vec &optional))
      (let ((result (v)))
        (with-arrays (result a b)
 	(dotimes (i 3)
@@ -86,7 +89,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 (defun v* (scalar v)
   (declare (type double-float scalar)
 	   (type vec v)
-	   (values vec &optional))
+	   #+sbcl (values vec &optional))
   (let ((result (v)))
     (with-arrays (result v)
       (dotimes (i 3)
@@ -99,7 +102,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 (defun vx (a b)
   "Cross product"
   (declare (type vec a b)
-	   (values vec &optional))
+	   #+sbcl (values vec &optional))
   (with-arrays (a b)
     (make-vec (- (* (a 1) (b 2))
 		 (* (a 2) (b 1)))
@@ -113,14 +116,14 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 
 (defun norm (v)
   (declare (type vec v)
-	   (values double-float &optional))
+	   #+sbcl (values double-float &optional))
   (let ((l2 (v. v v)))
     (declare (type double-float l2))
     (sqrt l2)))
 
 (defun normalize (v)
   (declare (type vec v)
-	   (values vec &optional))
+	   #+sbcl (values vec &optional))
   (let ((l (norm v)))
     (if (zerop l)
 	(v 0 0 1)
@@ -141,7 +144,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
  VECT. VECT must be normalized."
   (declare ;(type double-float angle)
 	   (type vec vec)
-	   (values mat &optional))
+	   #+sbcl (values mat &optional))
   (with-arrays (vec)
     (let* ((u (vec 0)) (v (vec 1)) (w (vec 2))
 	   (c (cos (* pi (/ 180) angle)))
@@ -158,7 +161,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
   "Multiply matrix M with vector V."
   (declare (type mat m)
 	   (type vec v)
-	   (values vec &optional))
+	   #+sbcl (values vec &optional))
   (let ((res (v)))
     (with-arrays (res v m)
       (dotimes (i 3)
@@ -184,7 +187,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 
 (defun rotate-around-axis (x y z theta rx ry rz)
   (declare (type double-float x y z theta rx ry rz)
-	   (values double-float double-float double-float &optional)
+	   #+sbcl (values double-float double-float double-float &optional)
 	   (optimize (speed 3) (debug 1) (safety 1)))
   (let* ((c (cos theta))
 	 (s (sin theta))
@@ -210,7 +213,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 
 (defun reflect (x y z nx ny nz)
   (declare (type double-float x y z nx ny nz)
-	   (values double-float double-float double-float &optional)
+	   #+sbcl (values double-float double-float double-float &optional)
 	   (optimize (speed 3) (debug 1) (safety 1)))
   (let ((-2kn (* -2 (+ (* x nx) (* y ny) (* z nz)))))
     (values (+ x (* nx -2kn))
@@ -242,13 +245,18 @@ sol:minpack_lsquares(eq,[b,c,h1,h2,f,g],[1,1,1,1,1,1]);
 /* output ll,gg,d,h1,a,h2 */
 solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 ")
+(let ((s (make-string-output-stream)))
+  
+  (get-output-stream-string s))
 
 
 (defun get-parameters-from-maxima (&key (f1 50) (f2 100) (a .2) (b .2) (c .2) (d 1))
  (let ((s (make-string-output-stream)))
-   (sb-ext:run-program "/usr/local/bin/maxima" 
+  #+sbcl (sb-ext:run-program "/usr/local/bin/maxima" 
 		       (list (format nil *maxima-batch* f1 f2 a b c d)) :output s)
-   (let* ((maxima-output (get-output-stream-string s))
+  #-sbcl (external-program:run "/usr/bin/maxima" 
+			       (list (format nil *maxima-batch* f1 f2 a b c d)) :output s)
+  (let* ((maxima-output (get-output-stream-string s))
 	  (line-start (position #\Newline maxima-output 
 				:from-end t :end (1- (length maxima-output))))
 	  (line-end (position #\Newline maxima-output :from-end t))
@@ -519,6 +527,13 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
   (glut:display-window (make-instance 'planet-window)
    ))
 
+#+nil
+(bordeaux-threads:make-thread #'(lambda () (rb-glut)) :name "gl")
+#+nil
+(rb-glut)
+
+#+nil
+(bordeaux-threads:make-thread #'(lambda () (format t "bla~%")) :name "bla")
 
 #+nil
 (sb-thread:make-thread #'(lambda () (rb-glut))

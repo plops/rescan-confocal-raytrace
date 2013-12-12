@@ -18,38 +18,25 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#.(load "~/quicklisp/setup")
+(eval-when (:execute :compile-toplevel :load-toplevel) 
+  (ql:quickload "external-program")
+  (ql:quickload :bordeaux-threads))
+
 
 (eval-when (:execute :compile-toplevel :load-toplevel) 
-  (progn
- #+nil   (ql:quickload :cl-glut)
-    (ql:quickload "external-program")
-  #+nil  (ql:quickload :cl-glu)))
-
-(ql:quickload :bordeaux-threads)
-
-
-#+nil
-(progn
   (setf asdf:*central-registry*
 	(union 
-	 (list *default-pathname-defaults* "/home/pi/stage/cl-fiber-prop/" "/home/pi/raspberry-pi-egl-test/")
+	 (list *default-pathname-defaults* "/home/pi/raspberry-pi-egl-test/")
 	 asdf:*central-registry*))
   (asdf:load-system :egl)
-#+nil  (asdf:load-system :cl-fiber-prop))
-
-(asdf:load-system :cl-opengl)
+  (asdf:load-system :cl-opengl))
 
 
-(egl:run-egl)
-
-(defparameter egl::*draw-function*
-  #'(lambda () (gl:clear-color 1 0 0 .1)
-       (gl:clear :color-buffer-bit)))
-
-
-(defpackage :g (:use :cl :gl))
+(defpackage :g (:use :cl :gl :ccl))
 (in-package :g)
 
+(ccl:use-interface-dir "raspberry-pi-vc")
 
 (deftype vec ()
   `(simple-array double-float (3)))
@@ -192,54 +179,6 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 (m* (rotation-matrix 90 (v 0d0 0d0 1d0)) (v 1d0))
 
 
-(defclass planet-window (glut:window)
-  ((year :accessor year :initform 0)
-   (day :accessor day :initform 0))
-  (:default-initargs
-   :pos-x (- 1366 500) :pos-y 100 :width 500 :height 500
-   :mode '(:double :rgb :depth) :title "planet.lisp"))
-
-(defmethod glut:display-window :before ((w planet-window))
-  (clear-color 0 0 0 0)
-  (shade-model :flat))
-
-
-
-(defun rotate-around-axis (x y z theta rx ry rz)
-  (declare (type double-float x y z theta rx ry rz)
-	   #+sbcl (values double-float double-float double-float &optional)
-	   (optimize (speed 3) (debug 1) (safety 1)))
-  (let* ((c (cos theta))
-	 (s (sin theta))
-	 (_c (- 1 c)))
-    (values (+ (* (+ c (* _c rx rx)) x)
-	       (* (- (* _c rx ry) (* s rz)) y)
-	       (* (+ (* _c rx rz) (* s ry)) z))
-	    (+ (* (+ (* _c rx ry) (* s rz)) x)
-	       (* (+ c (* _c ry ry)) y)
-	       (* (- (* _c ry rz) (* s ry)) z))
-	    (+ (* (- (* _c rx rz) (* s ry)) x)
-	       (* (+ (* _c ry rz) (* s rx)) y)
-	       (* (+ c (* _c rz rz)) z)))))
-
-(defmacro rvertex (x y z theta rx ry rz)
-  `(let ((l (expt (+ (* rx rx)
-		     (* ry ry)
-		     (* rz rz)) -.5d0))) 
-     (multiple-value-bind (a b c) (rotate-around-axis (* 1d0 ,x) (* 1d0 ,y) (* 1d0 ,z) 
-						      (* pi (/ 180d0) ,theta) 
-						      (* l ,rx) (* l ,ry) (* l ,rz))
-       (vertex a b c))))
-
-(defun reflect (x y z nx ny nz)
-  (declare (type double-float x y z nx ny nz)
-	   #+sbcl (values double-float double-float double-float &optional)
-	   (optimize (speed 3) (debug 1) (safety 1)))
-  (let ((-2kn (* -2 (+ (* x nx) (* y ny) (* z nz)))))
-    (values (+ x (* nx -2kn))
-	    (+ y (* ny -2kn))
-	    (+ z (* nz -2kn)))))
-
 ;; f1 f2 A B C D
 (defparameter *maxima-batch*
   "--batch-string=load(minpack)$
@@ -265,10 +204,6 @@ sol:minpack_lsquares(eq,[b,c,h1,h2,f,g],[1,1,1,1,1,1]);
 /* output ll,gg,d,h1,a,h2 */
 solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 ")
-(let ((s (make-string-output-stream)))
-  
-  (get-output-stream-string s))
-
 
 (defun get-parameters-from-maxima (&key (f1 50) (f2 100) (a .2) (b .2) (c .2) (d 1))
  (let ((s (make-string-output-stream)))
@@ -292,63 +227,111 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 #+nil
 (defparameter *geometry-parameters* (get-parameters-from-maxima :a .25 :b .1 :c .2 :d 1))
 
-(defvar *geometry-parameters* nil)
+(defvar *geometry-parameters* (list 300
+				    75.0
+				    7.5
+				    52.492676
+				    15.0
+				    52.492676))
 
 (defvar *angle1* 0)
 (defvar *angle2* 0)
+(defvar *vertex-buf* (make-heap-ivector (* 3 2) 'single-float))
+(defun store-vertex-list (vs)
+  (when (< (length *vertex-buf*) (* 3 (length vs)))
+    (dispose-heap-ivector *vertex-buf*)
+    (make-heap-ivector (* 3 (length vs)) 'single-float))
+  (let ((i 0)) 
+    (loop for p in vs do 
+	 (loop for c across p do
+	      (setf (aref *vertex-buf* i) (coerce c 'single-float))
+	      (incf i)))))
 
+(defvar *initialized* nil)
+(let ((v 0))
+  (defun bla ()
+    (incf v 9)
+    (when (< 360 v)
+      (setf v 0))
+    (clear-color (* .5 (+ 1 (sin (* pi (/ v 360f0))))) 0 0 .4)
+    (clear :color-buffer-bit)
+    (load-identity)
+    (translate 0 0 -1)
+    (scale .1 .1 .1)
+    (rotate v 0 0 1)
+    (unless (and *geometry-parameters* 
+		 (find-if-not #'numberp *geometry-parameters*))
+      (destructuring-bind (ll gg d h1 a h2) *geometry-parameters*
+	(declare (ignore ll))
+	(let* ((alpha 10)
+	       (m-sys (rotation-matrix alpha (v  0 0 1)))
+	       (d1 (m* m-sys (make-vec gg)))
+	       (d2 (m* m-sys (make-vec (- d) (- h1))))
+	       (d3 (m* m-sys (make-vec (- (- gg (+ d a))) (+ h1 h2))))
+	       (d4 (m* m-sys (make-vec (- a) (- h2))))
+	       (v (v 0 0))
+	       (vs (loop for e in (list (v 0 0) (v 0 10)
+				   ;  v d1 d2 d3 d4
+					) collect
+			(setf v (v+ v e)))))
+	  (defparameter *vs* vs)
+	  (store-vertex-list vs)
+	  (progn
+	    
+	   #+nil (unless *initialized*
+	     (vertex-attrib-pointer 0 3 :float nil 0 *vertex-buf*)
+	     (enable-vertex-attrib-array 0)
+	     (setf *initialized* t))
+	   
+	   (#_glVertexAttribPointer 0 3 #$GL_FLOAT 0 0 *vertex-buf*)
+
+		
+	    (color .9 .3 .3 1)
+	    ;	    (draw-arrays :lines 0 2)
+	    ))))))
+#+nil(defparameter *bdfa* (%int-to-ptr (%address-of *vertex-buf*)))
+(paref *vertex-buf* :float 0)
+#+nil
+(defparameter egl::*draw-function* #'bla)
+
+#+nil
+(defparameter egl::*run-gl* nil)
+#+nil
+(defparameter egl::*run-gl* t)
+
+#+nil
+(defparameter egl::*draw-function*
+  #'(lambda ()
+      (clear-color 1 1 0 .1)
+       (clear :color-buffer-bit)))
+
+#+nil
+(bordeaux-threads:make-thread #'egl:run-egl :name "gl")
+
+
+#+nil
 (let ((var 0)
       (var2 0))
   (defun draw (w)
-    (enable :line-smooth)
-    (blend-func :src-alpha :one-minus-src-alpha)
-					;   (reshape w (planet-window-wi))
-    (clear-color .4 .5 .3 0)
-    (matrix-mode :modelview)
-    (load-identity)
-    (glu:look-at 7 (+ 5 (* .2 (+ (* .9 (sin (* pi (/ 180) var2))) (sin (* pi (/ 180) var))))) 2 (* .1 (sin (* pi (/ 180) var2)) #+nil (expt (random 1.0) 4)) 0 (* 0 (random .02)) 0 1 0)
-    #+nil (glu:look-at 1 8 1  
-		 0 0 0
-		 0 1 0)
+    ;;    (enable :line-smooth)   (blend-func :src-alpha :one-minus-src-alpha)
     (clear :color-buffer :depth-buffer)
-   (enable :depth-test)
-   (color 1 1 1)
-   (progn
-     (incf var 4)
-     (when (< 360 var)
-       (setf var 0)))
-   (progn
-     (incf var2 1.2)
-     (when (< 360 var2)
-       (setf var2 0)))
-   (with-pushed-matrix
-     (rotate (+ 20 (* 1.8 (+ (* .1 (sin (* pi (/ 180d0) var))) (sin (* pi (/ 180d0) var2))))) 0 1 0)
-     (line-width 3)
-     (with-primitive :lines
-       (color 1 0 0) (vertex 0 0) (vertex 2 0)
-       (color 0 1 0) (vertex 0 0) (vertex 0 2)
-       (color 0 0 1) (vertex 0 0) (vertex 0 0 2))
-     (line-width 1)
-     (with-primitive :lines
-       (color .6 0 0) (vertex 0 0) (vertex 10 0)
-       (color 0 .6 0) (vertex 0 0) (vertex 0 10)
-       (color 0 0 .6) (vertex 0 0) (vertex 0 0 10))
-     (color .2 .2 .1)
-     (with-primitive :lines
-       (loop for i from 1 below 10 do (vertex 0 i) (vertex 10 i))
-       (loop for i from 1 below 10 do (vertex 0 0 i) (vertex 0 10 i))
-       (loop for i from 1 below 10 do (vertex i 0 0) (vertex i 0 10)))
-     (color 1 1 1)
-    
-     ;(rotate 90 0 0 1)
-     
-     
-     (progn
-      (unless *geometry-parameters*
-	(setf *geometry-parameters* (get-parameters-from-maxima)))
-      (unless (find-if-not #'numberp *geometry-parameters*)
-       (destructuring-bind (ll gg d h1 a h2) *geometry-parameters*
-	 (let* ((alpha (* 30 (sin (* pi (/ 180) var2))))
+    (enable :depth-test)
+    (color 1 1 1)
+    (progn
+      (incf var 4)
+      (when (< 360 var)
+	(setf var 0)))
+    (progn
+      (incf var2 1.2)
+      (when (< 360 var2)
+	(setf var2 0)))
+    (with-pushed-matrix
+      (progn
+	(unless *geometry-parameters*
+	  (setf *geometry-parameters* (get-parameters-from-maxima)))
+	(unless (find-if-not #'numberp *geometry-parameters*)
+	  (destructuring-bind (ll gg d h1 a h2) *geometry-parameters*
+	    (let* ((alpha (* 30 (sin (* pi (/ 180) var2))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -361,22 +344,14 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 	    (let ((s .05))
 	      (scale s s s))
 
-	    (with-primitive :lines
-	      (color 1 0 0) (vertex 0 0) (vertex 20 0)
-	      (color 0 1 0) (vertex 0 0) (vertex 0 20)
-	      (color 0 0 1) (vertex 0 0) (vertex 0 0 20))
-	    (color 1 1 1)
-
-	    ;(enable :line-stipple)
-	    (line-stipple 2 #b0001110001000111)
 	    (let ()
-	     (with-primitive :line-strip
+	    #+nil (with-primitive :line-strip
 	       (vertex 0 0)
 	       (vertex-v d1)
 	       (vertex-v (v+ d1 d2))
 	       (vertex-v (v+ (v+ d1 d2) d3))
 	       (vertex-v (v+ (v+ d1 d2) (v+ d3 d4)))))
-	    (disable :line-stipple)
+
 	    (progn
 	      (enable :light0)
 	      (color 1 1 1)
@@ -391,14 +366,14 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 		     (s (m* m2 (m* m (make-vec y x))))
 		     (n (normalize (vx (v- q p) (v- q r)))))
 		(enable :lighting)
-		(with-primitive :quads
+	#+nil	(with-primitive :quads
 		  (normal-v n)
 		  (loop for e in (list p q r s) do
 		       (vertex-v e)))
 		(disable :lighting)
 		(color 1 1 0)
 		(line-width 3)
-		(with-primitive :lines
+	#+nil	(with-primitive :lines
 		  (vertex 0 0)
 		  (vertex-v (v* 50d0 n)))
 		(line-width 1)))
@@ -420,13 +395,13 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 		     (n (normalize (vx (v- q p) (v- q r)))))
 		(defparameter *angle1* angle1)
 		(enable :lighting)
-		(with-primitive :quads
+#+nil		(with-primitive :quads
 		  (normal-v n)
 		  (loop for e in (list p q r s) do
 		       (vertex-v e)))
 		(disable :lighting)
 		(color 1 1 0)
-		(with-primitive :lines
+#+nil		(with-primitive :lines
 		  (vertex-v d1)
 		  (vertex-v (v+ d1 (v* 10d0 n))))))
 
@@ -451,12 +426,14 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 		     (n (normalize (vx (v- q p) (v- q r)))))
 		(defparameter *angle2* angle2)
 		(enable :lighting)
+		#+nil
 		(with-primitive :quads
 		  (normal-v n)
 		  (loop for e in (list p q r s) do
 		       (vertex-v e)))
 		(disable :lighting)
 		(color 1 1 0)
+		#+nil
 		(with-primitive :lines
 		  (vertex-v (v+ d2 d1))
 		  (vertex-v (v+ (v+ d2 d1) (v* 10d0 n))))))
@@ -484,79 +461,15 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 		     (s (v+ center (m* m2 (m* m (make-vec y x)))))
 		     (n (normalize (vx (v- q p) (v- q r)))))
 		(enable :lighting)
-		(with-primitive :quads
+		#+nil (with-primitive :quads
 		  (normal-v n)
 		  (loop for e in (list p q r s) do
 		       (vertex-v e)))
 		(disable :lighting)
 		(color 1 1 0)
-		(with-primitive :lines
+		#+nil (with-primitive :lines
 		  (vertex-v center)
-		  (vertex-v (v+ center (v* 10d0 n)))))))))))
-     
-     (rotate (+ var (year w)) 0 1 0)
-     (translate 3 0 0)
-     (rotate (+ (* 8 var) (day w)) 0 1 0))
-   (glut:swap-buffers)))
+		  (vertex-v (v+ center (v* 10d0 n))))))))))))))
 
-
-
-
-(defun vertex-v (v)
-  (declare (type vec v))
-  (with-arrays (v)
-    (vertex (v 0) (v 1) (v 2)))
-  v)
-
-(defun normal-v (v)
-  (declare (type vec v))
-  (with-arrays (v)
-    (normal (v 0) (v 1) (v 2)))
-  v)
-
-
-
-
-(defmethod glut:display ((w planet-window))
-  (draw w)
-  (sleep (/ 62))
-  (glut:post-redisplay))
-
-(defmethod glut:reshape ((w planet-window) width height)
-  (viewport 0 0 width height)
-  (matrix-mode :projection)
-  (load-identity)
-  (glu:perspective 60 (/ width height) 1 20)
-  (matrix-mode :modelview)
-  (load-identity)
-  (glu:look-at 7 5 2 0 0 0 0 1 0))
-
-(defmethod glut:keyboard ((w planet-window) key x y)
-  (declare (ignore x y))
-  (flet ((update (slot n)
-           (setf (slot-value w slot) (mod (+ (slot-value w slot) n) 360))
-           (glut:post-redisplay)))
-    (case key
-      (#\d (update 'day 10))
-      (#\D (update 'day -10))
-      (#\y (update 'year 5))
-      (#\Y (update 'year -5))
-      (#\Esc (glut:destroy-current-window)))))
-
-(defun rb-glut ()
-  (glut:display-window (make-instance 'planet-window)
-   ))
-
-#+nil
-(bordeaux-threads:make-thread #'(lambda () (rb-glut)) :name "gl")
-#+nil
-(rb-glut)
-
-#+nil
-(bordeaux-threads:make-thread #'(lambda () (format t "bla~%")) :name "bla")
-
-#+nil
-(sb-thread:make-thread #'(lambda () (rb-glut))
-		       :name "gl")
 
 

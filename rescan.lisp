@@ -21,30 +21,11 @@
 
 (eval-when (:execute :compile-toplevel :load-toplevel) 
   (progn
- #+nil   (ql:quickload :cl-glut)
-    (ql:quickload "external-program")
-  #+nil  (ql:quickload :cl-glu)))
-
-(ql:quickload :bordeaux-threads)
-
-
-#+nil
-(progn
-  (setf asdf:*central-registry*
-	(union 
-	 (list *default-pathname-defaults* "/home/pi/stage/cl-fiber-prop/" "/home/pi/raspberry-pi-egl-test/")
-	 asdf:*central-registry*))
-  (asdf:load-system :egl)
-#+nil  (asdf:load-system :cl-fiber-prop))
-
-(asdf:load-system :cl-opengl)
-
-
-(egl:run-egl)
-
-(defparameter egl::*draw-function*
-  #'(lambda () (gl:clear-color 1 0 0 .1)
-       (gl:clear :color-buffer-bit)))
+    (ql:quickload :cl-glut)
+    (ql:quickload :external-program)
+    (ql:quickload :cl-opengl)
+    (ql:quickload :cl-glu)
+    (ql:quickload :bordeaux-threads)))
 
 
 (defpackage :g (:use :cl :gl))
@@ -203,43 +184,6 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
   (clear-color 0 0 0 0)
   (shade-model :flat))
 
-
-
-(defun rotate-around-axis (x y z theta rx ry rz)
-  (declare (type double-float x y z theta rx ry rz)
-	   #+sbcl (values double-float double-float double-float &optional)
-	   (optimize (speed 3) (debug 1) (safety 1)))
-  (let* ((c (cos theta))
-	 (s (sin theta))
-	 (_c (- 1 c)))
-    (values (+ (* (+ c (* _c rx rx)) x)
-	       (* (- (* _c rx ry) (* s rz)) y)
-	       (* (+ (* _c rx rz) (* s ry)) z))
-	    (+ (* (+ (* _c rx ry) (* s rz)) x)
-	       (* (+ c (* _c ry ry)) y)
-	       (* (- (* _c ry rz) (* s ry)) z))
-	    (+ (* (- (* _c rx rz) (* s ry)) x)
-	       (* (+ (* _c ry rz) (* s rx)) y)
-	       (* (+ c (* _c rz rz)) z)))))
-
-(defmacro rvertex (x y z theta rx ry rz)
-  `(let ((l (expt (+ (* rx rx)
-		     (* ry ry)
-		     (* rz rz)) -.5d0))) 
-     (multiple-value-bind (a b c) (rotate-around-axis (* 1d0 ,x) (* 1d0 ,y) (* 1d0 ,z) 
-						      (* pi (/ 180d0) ,theta) 
-						      (* l ,rx) (* l ,ry) (* l ,rz))
-       (vertex a b c))))
-
-(defun reflect (x y z nx ny nz)
-  (declare (type double-float x y z nx ny nz)
-	   #+sbcl (values double-float double-float double-float &optional)
-	   (optimize (speed 3) (debug 1) (safety 1)))
-  (let ((-2kn (* -2 (+ (* x nx) (* y ny) (* z nz)))))
-    (values (+ x (* nx -2kn))
-	    (+ y (* ny -2kn))
-	    (+ z (* nz -2kn)))))
-
 ;; f1 f2 A B C D
 (defparameter *maxima-batch*
   "--batch-string=load(minpack)$
@@ -292,10 +236,43 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 #+nil
 (defparameter *geometry-parameters* (get-parameters-from-maxima :a .25 :b .1 :c .2 :d 1))
 
-(defvar *geometry-parameters* nil)
+
+(defvar *geometry-parameters* (list 300
+				    75.0
+				    7.5
+				    52.492676
+				    15.0
+				    52.492676))
 
 (defvar *angle1* 0)
 (defvar *angle2* 0)
+
+(defun draw-mirror (center angle &key (normal-len 10d0))
+  (enable :light0)
+  (color 1 1 1)
+  (let* ((r 3d0)
+	 (x (- r)) (y r)
+	 (m (rotation-matrix -90 (v 0 1)))
+	 (m2 (rotation-matrix angle
+			      (v 0 0 1)))
+	 (p (v+ center (m* m2 (m* m (make-vec x x)))))
+	 (q (v+ center (m* m2 (m* m (make-vec x y)))))
+	 (r (v+ center (m* m2 (m* m (make-vec y y)))))
+	 (s (v+ center (m* m2 (m* m (make-vec y x)))))
+	 (n (normalize (vx (v- q p) (v- q r)))))
+    (enable :lighting)
+    (with-primitive :quads
+      (normal-v n)
+      (loop for e in (list p q r s) do
+	   (vertex-v e)))
+    (disable :lighting)
+    (color 1 1 0)
+    (line-width 3)
+    (with-primitive :lines
+      (vertex-v center)
+      (vertex-v (v+ center (v* normal-len n))))
+    (line-width 1))
+  angle)
 
 (let ((var 0)
       (var2 0))
@@ -377,130 +354,28 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 	       (vertex-v (v+ (v+ d1 d2) d3))
 	       (vertex-v (v+ (v+ d1 d2) (v+ d3 d4)))))
 	    (disable :line-stipple)
-	    (progn
-	      (enable :light0)
-	      (color 1 1 1)
-	      (let* ((r 3d0)
-		     (x (- r)) (y r)
-		     (m (rotation-matrix -90 (v 0 1)))
-		     (m2 (rotation-matrix (+ (* .5 alpha))
-					  (v 0 0 1)))
-		     (p (m* m2 (m* m (make-vec x x))))
-		     (q (m* m2 (m* m (make-vec x y))))
-		     (r (m* m2 (m* m (make-vec y y))))
-		     (s (m* m2 (m* m (make-vec y x))))
-		     (n (normalize (vx (v- q p) (v- q r)))))
-		(enable :lighting)
-		(with-primitive :quads
-		  (normal-v n)
-		  (loop for e in (list p q r s) do
-		       (vertex-v e)))
-		(disable :lighting)
-		(color 1 1 0)
-		(line-width 3)
-		(with-primitive :lines
-		  (vertex 0 0)
-		  (vertex-v (v* 50d0 n)))
-		(line-width 1)))
-	    (progn
-	      (enable :light0)
-	      (color 1 1 1)
-	      (let* ((r 3d0)
-		     (x (- r)) (y r)
-		     (m (rotation-matrix -90 (v 0 1))) ;; rotate mirror into plane
-		     (angle1 (* -180 (/ pi)
-				(acos (v. (v* -1d0 (normalize d1)) 
-					  (normalize d2)))))
-		     (m2 (rotation-matrix (+ alpha 180 (* .5 angle1))
-					  (v 0 0 1)))
-		     (p (v+ d1 (m* m2 (m* m (make-vec x x)))))
-		     (q (v+ d1 (m* m2 (m* m (make-vec x y)))))
-		     (r (v+ d1 (m* m2 (m* m (make-vec y y)))))
-		     (s (v+ d1 (m* m2 (m* m (make-vec y x)))))
-		     (n (normalize (vx (v- q p) (v- q r)))))
-		(defparameter *angle1* angle1)
-		(enable :lighting)
-		(with-primitive :quads
-		  (normal-v n)
-		  (loop for e in (list p q r s) do
-		       (vertex-v e)))
-		(disable :lighting)
-		(color 1 1 0)
-		(with-primitive :lines
-		  (vertex-v d1)
-		  (vertex-v (v+ d1 (v* 10d0 n))))))
-
-
-	    (progn
-	      (enable :light0)
-	      (color 1 1 1)
-	      (let* ((r 3d0)
-		     (x (- r)) (y r)
-		     (m (rotation-matrix -90 (v 0 1))) ;; rotate mirror into plane
-		     (angle2 (* -180 (/ pi)
+	    (let ((angle1 (* -180 (/ pi)
+			     (acos (v. (v* -1d0 (normalize d1)) 
+				       (normalize d2)))))
+		  (angle2 (* -180 (/ pi)
 				(acos (v. (v* -1d0 (normalize d2)) 
 					  (normalize d3)))))
-		     (m2 (rotation-matrix (+ alpha
-					   *angle1*
-					   (* .5 angle2))
-					  (v 0 0 1)))
-		     (p (v+ (v+ d2 d1) (m* m2 (m* m (make-vec x x)))))
-		     (q (v+ (v+ d2 d1) (m* m2 (m* m (make-vec x y)))))
-		     (r (v+ (v+ d2 d1) (m* m2 (m* m (make-vec y y)))))
-		     (s (v+ (v+ d2 d1) (m* m2 (m* m (make-vec y x)))))
-		     (n (normalize (vx (v- q p) (v- q r)))))
-		(defparameter *angle2* angle2)
-		(enable :lighting)
-		(with-primitive :quads
-		  (normal-v n)
-		  (loop for e in (list p q r s) do
-		       (vertex-v e)))
-		(disable :lighting)
-		(color 1 1 0)
-		(with-primitive :lines
-		  (vertex-v (v+ d2 d1))
-		  (vertex-v (v+ (v+ d2 d1) (v* 10d0 n))))))
-	    
-	    (progn
-	      (enable :light0)
-	      (color 1 1 1)
-	      (let* ((r 3d0)
-		     (x (- r)) (y r)
-		     (m (rotation-matrix -90 (v 0 1))) ;; rotate mirror into plane
-		     (angle3 (* 180 (/ pi)
-				(acos (v. (v* -1d0 (normalize d3)) 
-					  (normalize d4)))))
-		     (m2 (rotation-matrix (+ alpha
-					   *angle1*
-					   *angle2*
-					   180
-					   (* .5 angle3)
-					   )
-					  (v 0 0 1)))
-		     (center (v+ (v+ d3 d2) d1))
-		     (p (v+ center (m* m2 (m* m (make-vec x x)))))
-		     (q (v+ center (m* m2 (m* m (make-vec x y)))))
-		     (r (v+ center (m* m2 (m* m (make-vec y y)))))
-		     (s (v+ center (m* m2 (m* m (make-vec y x)))))
-		     (n (normalize (vx (v- q p) (v- q r)))))
-		(enable :lighting)
-		(with-primitive :quads
-		  (normal-v n)
-		  (loop for e in (list p q r s) do
-		       (vertex-v e)))
-		(disable :lighting)
-		(color 1 1 0)
-		(with-primitive :lines
-		  (vertex-v center)
-		  (vertex-v (v+ center (v* 10d0 n)))))))))))
+		  (angle3 (* 180 (/ pi)
+			     (acos (v. (v* -1d0 (normalize d3)) 
+				       (normalize d4))))))
+	      (draw-mirror (v) (+  alpha (* .5 angle1)))
+	      (draw-mirror  d1 (+ alpha 180 (* .5 angle1)))
+	      (draw-mirror  (v+ d2 d1) (+ alpha
+			      angle1
+			      (* .5 angle2)))
+	      (draw-mirror  (v+ (v+ d3 d2) d1)
+			    (+ alpha angle1 angle2 180
+			       (* .5 angle3)))))))))
      
      (rotate (+ var (year w)) 0 1 0)
      (translate 3 0 0)
      (rotate (+ (* 8 var) (day w)) 0 1 0))
    (glut:swap-buffers)))
-
-
-
 
 (defun vertex-v (v)
   (declare (type vec v))
@@ -514,9 +389,6 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
     (normal (v 0) (v 1) (v 2)))
   v)
 
-
-
-
 (defmethod glut:display ((w planet-window))
   (draw w)
   (sleep (/ 62))
@@ -526,37 +398,18 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
   (viewport 0 0 width height)
   (matrix-mode :projection)
   (load-identity)
-  (glu:perspective 60 (/ width height) 1 20)
-  (matrix-mode :modelview)
-  (load-identity)
-  (glu:look-at 7 5 2 0 0 0 0 1 0))
+  (glu:perspective 60 (/ width height) 1 20))
 
 (defmethod glut:keyboard ((w planet-window) key x y)
   (declare (ignore x y))
-  (flet ((update (slot n)
-           (setf (slot-value w slot) (mod (+ (slot-value w slot) n) 360))
-           (glut:post-redisplay)))
-    (case key
-      (#\d (update 'day 10))
-      (#\D (update 'day -10))
-      (#\y (update 'year 5))
-      (#\Y (update 'year -5))
-      (#\Esc (glut:destroy-current-window)))))
+  (case key
+    (#\Esc (glut:destroy-current-window))))
 
 (defun rb-glut ()
-  (glut:display-window (make-instance 'planet-window)
-   ))
+  (glut:display-window (make-instance 'planet-window)))
 
 #+nil
 (bordeaux-threads:make-thread #'(lambda () (rb-glut)) :name "gl")
-#+nil
-(rb-glut)
 
-#+nil
-(bordeaux-threads:make-thread #'(lambda () (format t "bla~%")) :name "bla")
-
-#+nil
-(sb-thread:make-thread #'(lambda () (rb-glut))
-		       :name "gl")
 
 

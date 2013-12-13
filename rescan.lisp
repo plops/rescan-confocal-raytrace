@@ -244,14 +244,14 @@ solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
 (defvar *angle1* 0)
 (defvar *angle2* 0)
 
-(defun draw-mirror (center angle &key (normal-len 10d0))
+(defun draw-mirror (center angle-x &key  (normal-len 10d0) (angle-y 0d0))
   (declare (type vec center))
   (enable :light0)
   (color 1 1 1)
   (let* ((r 3d0)
 	 (x (- r)) (y r)
-	 (m (rotation-matrix -90 (v 0 1)))
-	 (m2 (rotation-matrix angle
+	 (m (rotation-matrix (+ -90 angle-y) (v 0 1)))
+	 (m2 (rotation-matrix angle-x
 			      (v 0 0 1)))
 	 (p (v+ center (m* m2 (m* m (make-vec x x)))))
 	 (q (v+ center (m* m2 (m* m (make-vec x y)))))
@@ -507,7 +507,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 20 (* 0 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 0 (* 90 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -582,75 +582,89 @@ signal RAY-LOST."
 					camera-angle
 					:f f-tl))
 		   (camera (draw-mirror camera-center
-					camera-angle)))
-	      (loop for deflection-angle from -3 upto 3 do
-	       (let* ((mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
-					    (+ deflection-angle (* .5 alpha))))
-		      (ray1 (reflect ray dichroic))
-		      (ray2 (reflect ray1 mirror1))
-		      (ray3 (refract ray2 objective))
-		      (ray4 (reflect ray3 sample-mirror))
-		      (ray5 (refract ray4 (reverse-normal objective)))
-		      (ray6 (reflect ray5 mirror1))
-		      (ray7 (refract ray6 lens1))
-		      (ray8 (reflect ray7 mirror2))
-		      (ray9 (reflect ray8 mirror3))
-		      (ray10 (refract ray9 lens2))
-		      (ray11 (reflect ray10 mirror4))
-		      (ray12 (reflect ray11 mirror1))
-		      (ray13 (refract ray12 tubelens)))
+					camera-angle))
+		   (scan-positions ()))
+	      (loop for deflection-angle-y from -3 upto 3 do
+	       (loop for deflection-angle from -3 upto 3 do
+		    (let* ((mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
+						 (+ deflection-angle (* .5 alpha))
+						 :angle-y deflection-angle-y))
+			   (ray1 (reflect ray dichroic))
+			   (ray2 (reflect ray1 mirror1))
+			   (ray3 (refract ray2 objective))
+			   (ray4 (reflect ray3 sample-mirror))
+			   (ray5 (refract ray4 (reverse-normal objective)))
+			   (ray6 (reflect ray5 mirror1))
+			   (ray7 (refract ray6 lens1))
+			   (ray8 (reflect ray7 mirror2))
+			   (ray9 (reflect ray8 mirror3))
+			   (ray10 (refract ray9 lens2))
+			   (ray11 (reflect ray10 mirror4))
+			   (ray12 (reflect ray11 mirror1))
+			   (ray13 (refract ray12 tubelens)))
 		
-		 (color .6 .3 .3)
-		 (line-width 1)
-		 (let ((a (intersect-in-plane ray3 sample-mirror))
-		       (b (intersect-in-plane ray13 camera)))
-		   (format t "~18,15f ~18,15f ~18,15f ~18,15f~%"
-			   (aref a 0) (aref a 1)
-			   (aref b 0) (aref b 1)))
-		 (with-primitive :lines
-		   (vertex-v (slot-value ray 'start))
-		   (vertex-v (intersect ray dichroic))
+		      
+		      (line-width 1)
+		      (let ((sample (intersect-in-plane ray3 sample-mirror))
+			    (camera (intersect-in-plane ray13 camera)))
+			(push (list sample camera deflection-angle deflection-angle-y) scan-positions))
+		      (with-primitive :lines
+			(color 0 0 1)
+			(vertex-v (slot-value ray 'start))
+			(vertex-v (intersect ray dichroic))
+			(color .6 .3 .3)
+			(vertex-v (slot-value ray1 'start))
+			(vertex-v (intersect ray1 mirror1))
 
-		   (vertex-v (slot-value ray1 'start))
-		   (vertex-v (intersect ray1 mirror1))
+			(vertex-v (slot-value ray2 'start))
+			(vertex-v (intersect ray2 objective))
 
-		   (vertex-v (slot-value ray2 'start))
-		   (vertex-v (intersect ray2 objective))
+			(vertex-v (slot-value ray3 'start))
+			(vertex-v (intersect ray3 sample-mirror))
 
-		   (vertex-v (slot-value ray3 'start))
-		   (vertex-v (intersect ray3 sample-mirror))
-
-		   (vertex-v (slot-value ray4 'start))
-		   (vertex-v (intersect ray4 objective))
+			(vertex-v (slot-value ray4 'start))
+			(vertex-v (intersect ray4 objective))
 		  
-		   (vertex-v (slot-value ray5 'start))
-		   (vertex-v (intersect ray5 mirror1))
+			(vertex-v (slot-value ray5 'start))
+			(vertex-v (intersect ray5 mirror1))
 		  
-		   (vertex-v (slot-value ray6 'start))
-		   (vertex-v (intersect ray6 lens1))
+			(vertex-v (slot-value ray6 'start))
+			(vertex-v (intersect ray6 lens1))
 
-		   (vertex-v (slot-value ray7 'start))
-		   (vertex-v (intersect ray7 mirror2))
+			(vertex-v (slot-value ray7 'start))
+			(vertex-v (intersect ray7 mirror2))
 
-		   (vertex-v (slot-value ray8 'start))
-		   (vertex-v (intersect ray8 mirror3))
+			(vertex-v (slot-value ray8 'start))
+			(vertex-v (intersect ray8 mirror3))
 
-		   (vertex-v (slot-value ray9 'start))
-		   (vertex-v (intersect ray9 lens2))
+			(vertex-v (slot-value ray9 'start))
+			(vertex-v (intersect ray9 lens2))
 
-		   (vertex-v (slot-value ray10 'start))
-		   (vertex-v (intersect ray10 mirror4))
+			(vertex-v (slot-value ray10 'start))
+			(vertex-v (intersect ray10 mirror4))
 		  
-		   (vertex-v (slot-value ray11 'start))
-		   (vertex-v (intersect ray11 mirror1))
+			(vertex-v (slot-value ray11 'start))
+			(vertex-v (intersect ray11 mirror1))
 
-		   (vertex-v (slot-value ray12 'start))
-		   (vertex-v (intersect ray12 tubelens))
+			(vertex-v (slot-value ray12 'start))
+			(vertex-v (intersect ray12 tubelens))
 		  
-		   (vertex-v (slot-value ray13 'start))
-		   (vertex-v (intersect ray13 camera))
-		   ))))
-	    ))))))
+			(vertex-v (slot-value ray13 'start))
+			(vertex-v (intersect ray13 camera)))
+		      
+		      (point-size 3)
+		      (with-pushed-matrix
+			(rotate 90 0 1 0)
+			
+			(let ((s 40))
+			 (scale s s s))
+			(translate -1 0 0)
+			(with-primitives :points
+			
+			 (loop for (red-sample blue-cam  angle-x angle-y) in scan-positions do
+			      (color 1 0 0)  (vertex-v red-sample) 
+			      (color 0 0 1)  (vertex-v blue-cam))
+			 ))))))))))))
    (glut:swap-buffers)))
 
 (defun get-point-along-polygon (rvs l &key (start (v)))

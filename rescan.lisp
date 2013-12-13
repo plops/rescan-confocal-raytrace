@@ -175,8 +175,7 @@ so that (ARRAY ...) corresponds to (AREF ARRAY ...)."
 
 
 (defclass planet-window (glut:window)
-  ((year :accessor year :initform 0)
-   (day :accessor day :initform 0))
+  ()
   (:default-initargs
    :pos-x (- 1366 500) :pos-y 100 :width 500 :height 500
    :mode '(:double :rgb :depth) :title "planet.lisp"))
@@ -453,7 +452,7 @@ signal RAY-LOST."
     (clear-color .4 .5 .3 0)
     (matrix-mode :modelview)
     (load-identity)
-    (glu:look-at 
+    #+nil (glu:look-at 
      7 
      (+ 5 (* .2 (+ (* .9 (sin (* pi (/ 180) var2)))
 		   (sin (* pi (/ 180) var))))) 
@@ -462,8 +461,8 @@ signal RAY-LOST."
      (* .1 (sin (* pi (/ 180) var2)))            0        (* 0 (random .02)) 
 
      0 1 0)
-    #+nil (glu:look-at 1 8 1  
-		 0 0 0
+    (glu:look-at 2 5 1.2  
+		 2 0 1
 		 0 1 0)
     (clear :color-buffer :depth-buffer)
    (enable :depth-test :normalize)
@@ -487,7 +486,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 0 (* 10 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 10 (* 10 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -498,7 +497,6 @@ signal RAY-LOST."
 	    (rotate -90 1 0 0)
 	    (let ((s .045))
 	      (scale s s s))
-
 	    (with-primitive :lines ;; local coordinate system
 	      (color 1 0 0) (vertex 0 0) (vertex 20 0)
 	      (color 0 1 0) (vertex 0 0) (vertex 0 20)
@@ -527,22 +525,26 @@ signal RAY-LOST."
 			       (+  (* -.5 (- (elt angle 3) 
 						(+ 180 (elt angle 2)))))))
 	      
-	      (multiple-value-bind (center angle)
-		  (get-point-along-polygon (list d1 d2 d3 d4) (* .99 ll .5 (+ 1 (sin (* var2 (/ 180) pi)))))
-		(draw-lens center angle))
+	      (progn ;; dichroic beam splitter
+		(draw-mirror (v* .5d0 d1) (+ (* -.5 alpha) 180 (elt angle 0))))
 	      
-	      (defparameter *bla* (list d1 d2 d3 d4))
+	      (multiple-value-bind (center angle)
+		  (get-point-along-polygon (list d1 d2 d3 d4) f1)
+		;; first lens
+		(draw-lens center angle))
+	      (multiple-value-bind (center angle)
+		  (get-point-along-polygon (list d1 d2 d3 d4) (+ f1 f1 f2))
+		;; second lens
+		(draw-lens center angle))
+	      (let ((f-obj 10))
+		;; objective
+	       (draw-lens (make-vec f-obj) 0)
+	       ;; mirror in sample plane
+	       (draw-mirror (make-vec (* 2 f-obj)) 180))
 
-#+nil	      (draw-lens)))))))
-     
-     (rotate (+ var (year w)) 0 1 0)
-     (translate 3 0 0)
-     (rotate (+ (* 8 var) (day w)) 0 1 0))
+	      
+	      )))))))
    (glut:swap-buffers)))
-0 -98 116 -105
-(loop for e in *bla* collect
-     (* 180 (/ pi)
-	(atan (aref e 1) (aref e 0))))
 
 (defun get-point-along-polygon (rvs l &key (start (v)))
   "Given a polygon by relative vectors, find the point of the polygon

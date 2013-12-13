@@ -484,7 +484,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 10 (* 10 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 10 (* 0 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -515,22 +515,27 @@ signal RAY-LOST."
 		  (angle3 (* 180 (/ pi)
 			     (acos (v. (v* -1d0 (normalize d3)) 
 				       (normalize d4))))))
-	      (draw-mirror (v) (+ (* .5 alpha) (* .5 angle1)) :normal-len 50d0)
-	      (draw-mirror  d1 (+ alpha 180 (* .5 angle1)))
-	      (draw-mirror  (v+ d2 d1) (+ alpha
-			      angle1
-			      (* .5 angle2)))
+	      (draw-mirror (v) 
+			   (+ (* .5 alpha) (* .5 angle1))
+			   :normal-len 50d0)
+	      (draw-mirror  d1
+			    (+ alpha
+			       180
+			       (* .5 angle1)))
+	      (draw-mirror  (v+ d2 d1) 
+			    (+ alpha
+			       angle1
+			       (* .5 angle2)))
 	      (draw-mirror  (v+ (v+ d3 d2) d1)
-			    (+ alpha angle1 angle2 180
+			    (+ alpha angle1 angle2 
+			       180
 			       (* .5 angle3)))
 	      
-	      (multiple-value-bind (center dir)
-		  (get-point-along-polygon (list d1 d2 d3 d4) (* .99 ll .5 (+ 1 (sin (* var (/ 180) pi)))))
-		(draw-lens center 0))
-
-	      (defparameter *bla* (list d1 (norm d1) d2 gg f1
-					(multiple-value-list
-					      (get-point-along-polygon (list d1 d2 d3) f1))))
+	      (multiple-value-bind (center angle)
+		  (get-point-along-polygon (list d1 d2 d3 d4) (* .99 ll .5 (+ 1 (sin (* var2 (/ 180) pi)))))
+		(draw-lens center angle))
+	      
+	      (defparameter *bla* (list d1 d2 d3 d4))
 
 #+nil	      (draw-lens)))))))
      
@@ -539,18 +544,21 @@ signal RAY-LOST."
      (rotate (+ (* 8 var) (day w)) 0 1 0))
    (glut:swap-buffers)))
 
+(loop for e in *bla* collect (* 180 (/ pi) (atan (aref e 1) (aref e 0))))
+
 (defun get-point-along-polygon (rvs l &key (start (v)))
   "Given a polygon by relative vectors, find the point of the polygon
 at a circumference length l. Return this point and the current
 direction vector."
   (let ((len 0))
-   (loop for p in rvs do
+   (loop for p in rvs and index from 0 do
 	(incf len (norm p))
 	(when (< l len)
 	  (return-from get-point-along-polygon
 	    (values (v+ start (v* (- (norm p) (- len l)) (normalize p)))
-		    p)))
-	(setf start (v+ start p)))
+		    (* -180 (/ pi) (atan (aref p 1) (aref p 0))))))
+	(setf start (v+ start p)
+	      p-old p))
    (error "requested length not within circumference of given polygon.")))
 
 (defun vertex-v (v)

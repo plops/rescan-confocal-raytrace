@@ -269,8 +269,8 @@ solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
     (with-primitive :lines
       (vertex-v center)
       (vertex-v (v+ center (v* normal-len n))))
-    (line-width 1))
-  angle)
+    (line-width 1)
+    (make-instance 'disk :center center :normal n :radius 5d0)))
 
 (defun draw-lens (center angle &key (normal-len 10d0))
   (declare (type vec center))
@@ -446,6 +446,7 @@ signal RAY-LOST."
 (let ((var 0)
       (var2 0))
   (defun draw (w)
+    (declare (ignorable w))
     (enable :line-smooth)
     (blend-func :src-alpha :one-minus-src-alpha)
 					;   (reshape w (planet-window-wi))
@@ -486,7 +487,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 10 (* 10 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 30 (* 0 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -510,7 +511,23 @@ signal RAY-LOST."
 	    (let ((angle  (loop for e in (list d1 d2 d3 d4) collect
 			       (* -180 (/ pi)
 				  (atan (aref e 1) (aref e 0))))))
-	      (draw-mirror (v) 
+	      
+	      (let* ((dichroic-position (v* .5d0 d1))
+		     (ray (make-instance 'ray 
+					 :start (make-vec 0 
+							  (+ 2 (aref dichroic-position 1))
+							  0)
+					 :direction (v 1)))
+		     (dichroic (draw-mirror dichroic-position
+					    (+ (* -.5 alpha) 180 (elt angle 0))))
+		     (dichroic-isec (intersect ray dichroic)))
+		
+		(color .8 .4 .4)
+		(with-primitive :lines
+		  (vertex-v (slot-value ray 'start))
+		  (vertex-v dichroic-isec)))
+
+	      (draw-mirror (v) ;; mirror 1 in bfp of objective
 			   (* .5 alpha))
 	      (draw-mirror  d1
 			    (+ (elt angle 1)
@@ -525,8 +542,7 @@ signal RAY-LOST."
 			       (+  (* -.5 (- (elt angle 3) 
 						(+ 180 (elt angle 2)))))))
 	      
-	      (progn ;; dichroic beam splitter
-		(draw-mirror (v* .5d0 d1) (+ (* -.5 alpha) 180 (elt angle 0))))
+	      
 	      
 	      (multiple-value-bind (center angle)
 		  (get-point-along-polygon (list d1 d2 d3 d4) f1)
@@ -541,7 +557,9 @@ signal RAY-LOST."
 	       (draw-lens (make-vec f-obj) 0)
 	       ;; mirror in sample plane
 	       (draw-mirror (make-vec (* 2 f-obj)) 180))
+	      
 
+	      
 	      
 	      )))))))
    (glut:swap-buffers)))
@@ -557,8 +575,7 @@ direction vector."
 	  (return-from get-point-along-polygon
 	    (values (v+ start (v* (- (norm p) (- len l)) (normalize p)))
 		    (* -180 (/ pi) (atan (aref p 1) (aref p 0))))))
-	(setf start (v+ start p)
-	      p-old p))
+	(setf start (v+ start p)))
    (error "requested length not within circumference of given polygon.")))
 
 (defun vertex-v (v)

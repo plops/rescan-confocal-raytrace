@@ -528,84 +528,75 @@ signal RAY-LOST."
 	      (vertex-v (v+ d1 d2)) (vertex-v (v+ (v+ d1 d2) d3))
 	      (vertex-v (v+ (v+ d1 d2) (v+ d3 d4))))
 
-	    (let ((angle  (loop for e in (list d1 d2 d3 d4) collect
-			       (* -180 (/ pi)
-				  (atan (aref e 1) (aref e 0))))))
-	      
-	      (let* ((dichroic-position (v* .5d0 d1))
-		     (ray (make-instance 'ray 
-					 :start (make-vec 0 
-							  (+ .1 (aref dichroic-position 1))
-							  0)
-					 :direction (v 1)))
-		     (dichroic (draw-mirror dichroic-position
-					    (+ (* -.5 alpha) 180 (elt angle 0))))
-		     (ray1 (reflect ray dichroic))
-		     (mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
+	    (let* ((angle  (loop for e in (list d1 d2 d3 d4) collect
+				(* -180 (/ pi)
+				   (atan (aref e 1) (aref e 0)))))
+		   (dichroic-position (v* .5d0 d1))
+		   (dichroic (draw-mirror dichroic-position
+					  (+ (* -.5 alpha) 180 (elt angle 0))))
+		   (ray (make-instance 'ray 
+				       :start (make-vec 0 
+							(+ .1 (aref dichroic-position 1))
+							0)
+				       :direction (v 1)))
+		   (mirror1-undeflected (draw-mirror (v) ;; mirror 1 in bfp of objective in its neutral position
+						     (* .5 alpha)))
+		   (f-obj 10)
+		   (objective (draw-lens (make-vec f-obj) 0 :f f-obj))
+		   (sample-mirror (draw-mirror (make-vec (* 2 f-obj)) 180))
+		   (lens1 (multiple-value-bind (center angle)
+			      (get-point-along-polygon (list d1 d2 d3 d4) f1)
+			    (draw-lens center angle)))
+		   (mirror2 (draw-mirror  d1 
+					  (+ (elt angle 1)
+					     (+ (* -.5 
+						   (- (elt angle 1) 
+						      (+ 180 (elt angle 0))))))))
+		   (mirror3 (draw-mirror  (v+ d2 d1) 
+					  (+ (elt angle 2)	
+					     (+ 180 (* -.5 
+						       (- (elt angle 2) 
+							  (+ 180 (elt angle 1))))))))
+		   (lens2 (multiple-value-bind (center angle)
+			      (get-point-along-polygon (list d1 d2 d3 d4) (+ f1 f1 f2))
+			    (draw-lens center angle :f f2)))
+		   (mirror4 (draw-mirror  (v+ (v+ d3 d2) d1)
+					  (+ (elt angle 3)
+					     (+  (* -.5 (- (elt angle 3) 
+							   (+ 180 (elt angle 2))))))))
+		   
+		   (f-tl 25d0)
+		   (d4r (reflect
+			 (make-instance 'ray
+					:start (slot-value mirror4 'center)
+					:direction (normalize d4))
+			 mirror1-undeflected))
+		   (tl-center (with-slots (start direction) d4r
+				(v+ start (v* f-tl direction))))
+		   (camera-center (with-slots (start direction) d4r
+				    (v+ start (v* (* 2 f-tl) direction))))
+		   (camera-angle (with-slots (start direction) d4r
+				   (* -180 (/ pi)
+				      (atan (aref direction 1) (aref direction 0)))))
+		   (tubelens (draw-lens tl-center
+					camera-angle
+					:f f-tl))
+		   (camera (draw-mirror camera-center
+					camera-angle)))
+	      (let* ((mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
 					   (+  (* .5 alpha))))
-		     (mirror1-undeflected (draw-mirror (v) ;; mirror 1 in bfp of objective in its neutral position
-						       (* .5 alpha)))
+		     (ray1 (reflect ray dichroic))
 		     (ray2 (reflect ray1 mirror1))
-		     (f-obj 10)
-		     (objective (draw-lens (make-vec f-obj) 0 :f f-obj))
 		     (ray3 (refract ray2 objective))
-		     (sample-mirror (draw-mirror (make-vec (* 2 f-obj)) 180))
-
 		     (ray4 (reflect ray3 sample-mirror))
-
 		     (ray5 (refract ray4 (reverse-normal objective)))
 		     (ray6 (reflect ray5 mirror1))
-		     
-		     (lens1 (multiple-value-bind (center angle)
-				(get-point-along-polygon (list d1 d2 d3 d4) f1)
-			      (draw-lens center angle)))
 		     (ray7 (refract ray6 lens1))
-
-		     (mirror2 (draw-mirror  d1 
-					    (+ (elt angle 1)
-					       (+ (* -.5 
-							 (- (elt angle 1) 
- 							    (+ 180 (elt angle 0))))))))
-
 		     (ray8 (reflect ray7 mirror2))
-		     (mirror3 (draw-mirror  (v+ d2 d1) 
-					    (+ (elt angle 2)	
-					       (+ 180 (* -.5 
-							 (- (elt angle 2) 
-							    (+ 180 (elt angle 1))))))))
-		     
 		     (ray9 (reflect ray8 mirror3))
-		     (lens2 (multiple-value-bind (center angle)
-				(get-point-along-polygon (list d1 d2 d3 d4) (+ f1 f1 f2))
-			      (draw-lens center angle :f f2)))
 		     (ray10 (refract ray9 lens2))
-		     
-		     (mirror4 (draw-mirror  (v+ (v+ d3 d2) d1)
-					    (+ (elt angle 3)
-					       (+  (* -.5 (- (elt angle 3) 
-							     (+ 180 (elt angle 2))))))))
 		     (ray11 (reflect ray10 mirror4))
-		     
 		     (ray12 (reflect ray11 mirror1))
-		     
-		     (f-tl 25d0)
-		     (d4r (reflect
-			   (make-instance 'ray
-					  :start (slot-value mirror4 'center)
-					  :direction (normalize d4))
-			   mirror1-undeflected))
-		     (tl-center (with-slots (start direction) d4r
-				  (v+ start (v* f-tl direction))))
-		     (camera-center (with-slots (start direction) d4r
-				      (v+ start (v* (* 2 f-tl) direction))))
-		     (camera-angle (with-slots (start direction) d4r
-				     (* -180 (/ pi)
-				      (atan (aref direction 1) (aref direction 0)))))
-		     (tubelens (draw-lens tl-center
-					  camera-angle
-					  :f f-tl))
-		     (camera (draw-mirror camera-center
-					camera-angle))
 		     (ray13 (refract ray12 tubelens)))
 		
 		(color .6 .3 .3)
@@ -657,11 +648,8 @@ signal RAY-LOST."
 		  
 		  (vertex-v (slot-value ray13 'start))
 		  (vertex-v (intersect ray13 camera))
-		  
-		  
-
-		  ))
-	      )))))))
+		  )))
+	    ))))))
    (glut:swap-buffers)))
 
 (defun get-point-along-polygon (rvs l &key (start (v)))

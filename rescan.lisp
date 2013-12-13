@@ -25,7 +25,8 @@
     (ql:quickload :external-program)
     (ql:quickload :cl-opengl)
     (ql:quickload :cl-glu)
-    (ql:quickload :bordeaux-threads)))
+    (ql:quickload :bordeaux-threads)
+    (ql:quickload :alexandria)))
 
 
 (defpackage :g (:use :cl :gl))
@@ -207,12 +208,8 @@ eq:[
 	dd-h1/h2]; 
 sol:minpack_lsquares(eq,[b,c,h1,h2,f,g],[1,1,1,1,1,1]);
 /* output ll,gg,d,h1,a,h2 */
-solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
+solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
 ")
-(let ((s (make-string-output-stream)))
-  
-  (get-output-stream-string s))
-
 
 (defun get-parameters-from-maxima (&key (f1 50) (f2 100) (a .2) (b .2) (c .2) (d 1))
  (let ((s (make-string-output-stream)))
@@ -237,7 +234,8 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 (defparameter *geometry-parameters* (get-parameters-from-maxima :a .25 :b .1 :c .2 :d 1))
 
 
-(defvar *geometry-parameters* (list 300
+(defvar *geometry-parameters* (list 50 100
+				    300
 				    75.0
 				    7.5
 				    52.492676
@@ -248,6 +246,7 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 (defvar *angle2* 0)
 
 (defun draw-mirror (center angle &key (normal-len 10d0))
+  (declare (type vec center))
   (enable :light0)
   (color 1 1 1)
   (let* ((r 3d0)
@@ -274,6 +273,160 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
     (line-width 1))
   angle)
 
+(defun draw-lens (center angle &key (normal-len 10d0))
+  (declare (type vec center))
+  (draw-mirror center angle :normal-len normal-len)
+  angle)
+
+(defclass disk ()
+  ((center :accessor disk-center :initarg :center 
+	   :initform (alexandria:required-argument)
+	   :type vec)
+   (normal :accessor disk-normal :initarg :normal
+	   :initform (alexandria:required-argument)
+	   :type vec)
+   (radius :accessor disk-radius :initarg :radius
+	  :initform (alexandria:required-argument)
+	  :type double-float)))
+
+(defclass lens (disk)
+  ((focal-length :accessor focal-length :initarg :focal-length
+		 :initform (alexandria:required-argument)
+		 :type double-float)))
+
+(defmethod print-object ((lens lens) stream)
+  (with-slots (focal-length) lens
+   (format stream "#<lens f: ~2,2f>" focal-length)))
+
+(defclass ray ()
+  ((start :accessor start :initarg :start
+	  :initform (alexandria:required-argument)
+	  :type vec)
+   (direction :accessor direction :initarg :direction
+	  :initform (alexandria:required-argument)
+	  :type vec)))
+
+(defmethod print-object ((ray ray) stream)
+  (with-slots (start direction) ray
+   (format stream "#<ray start: ~a dir: ~a>" start direction)))
+
+(defgeneric intersect (ray object))
+
+(defmethod intersect ((ray ray) (disk disk))
+  "Find the point where a ray intersects a plane."
+  #+sbcl (declare (values vec &optional))
+  (with-slots (center normal) disk
+    (with-slots (start direction) ray
+      (let* ((hess-dist (v. center normal)) ;; distance of plane to origin
+	     (eta (/ (- hess-dist (v. normal start)) ;; scaling along ray to hit exactly on plane
+		   (v. normal direction))))
+	(v+ start (v* eta direction))))))
+
+#+nil
+(intersect 
+ (make-instance 'ray :start (v 0 1 -1) :direction (v 0 0 1))
+ (make-instance 'plane :normal (v 0 0 1) :center (v)))
+
+
+(define-condition ray-lost () ())
+
+(defgeneric refract (ray object))
+
+;;
+;;		   --\
+;;		  |   -----\   intersection
+;;		  | 	    --+
+;;	   |	   \	   ---|--\
+;;	   |	   | -----/   |   ----\
+;;	   |   ----+/  	r'    |	       ----\
+;;       f |--/    c	      |		    ----\      dir
+;;         |  	r	      |		         ---\
+;;	   |  		      |rho		     ----\
+;;	   |   		      |				  ----\
+;;	   |   		      |				       ----\
+;;	   |   		      |				  phi	    ----\
+;;  -------+----------<-------+-------------------------------------------
+;;	   |             n    |	center
+;;	   |     	      |
+;;	   |     	      |
+;;	   |    	      |
+;;	      		      |
+;;	     	      f	      |
+
+(defmethod refract ((ray ray) (lens lens))
+  "Return new ray after refraction on thin lens. In general you will
+have to normalize its direction. The refraction on an objective needs
+the non-normalized result. When the ray doesn't hit the lens the
+condition RAY-LOST is signalled."
+  (declare (values ray &optional))
+  (with-slots (start direction) ray
+    (with-slots (center normal focal-length radius) lens
+      (assert (< (abs (- 1 (norm direction))) 1e-12))
+      (assert (< (abs (- 1 (norm normal))) 1e-12))
+      (let* ((intersection (intersect ray lens))
+	     (rho (v- intersection center))
+	     (cosphi (v. normal direction)))
+	(when (< radius (norm rho))
+	  (error 'ray-lost))
+	(make-instance 'ray
+		       :start intersection
+		       :direction (v- (v* (/ focal-length cosphi) direction)
+				      rho))))))
+#+nil
+(handler-case 
+    (refract (make-instance 'ray :start (v 0 .1 -10)
+			    :direction (v 0 0 1))
+	     (make-instance 'lens 
+			    :focal-length 10.0
+			    :center (v)
+			    :normal (v 0 0 1)
+			    :lens-radius .2))
+  (ray-lost () nil))
+
+;;   sketch of the mirror for incoming parallel light
+;;   --------------------+-----------------------
+;; 		      /|\
+;; 		     / | \
+;; 		    / n|  \	       N=n*(- (p.n))
+;; 		q  /   |   \  p	       p+N=r
+;; 	          /    v    \	       q=N+r
+;; 	         /           \
+;; 	        /      |      \	       q=p-2(p.n)*n
+;; 	       /       |       \
+;; 	      /       N|        \
+;; 	     /         |         \
+;; 	    /          |     r    \
+;; 	   /   	       v<----------\
+;; p .. ray-direction
+;; N .. mirror-normal
+
+(defgeneric reflect (ray object))
+
+(defmethod reflect ((ray ray) (disk disk))
+  "Return reflected ray. If the ray isn't inside of the radius return
+signal RAY-LOST."
+  (declare (values ray &optional))
+  (with-slots (start direction) ray
+   (with-slots (center normal radius) disk
+     (assert (< (abs (- 1 (norm normal))) 1e-12))
+     (assert (< (abs (- 1 (norm direction))) 1e-12))
+     (let ((intersection (intersect ray disk)))
+       (when (< (norm (v- intersection center)) radius)
+	 (signal 'ray-lost))
+       (let ((dir (v+ direction (v* (* -2d0 (v. direction normal))
+					normal))))
+	 (make-instance 'ray 
+			:start intersection 
+			:direction (normalize dir)))))))
+
+#+nil
+(reflect 
+ (make-instance 'ray :start (v 0 0 10)
+		:direction (v 0 0 -1))
+ (make-instance 'disk :radius 1.0
+		:center (v)
+		:normal (v 0 0 1)))
+
 (let ((var 0)
       (var2 0))
   (defun draw (w)
@@ -283,12 +436,20 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
     (clear-color .4 .5 .3 0)
     (matrix-mode :modelview)
     (load-identity)
-    (glu:look-at 7 (+ 5 (* .2 (+ (* .9 (sin (* pi (/ 180) var2))) (sin (* pi (/ 180) var))))) 2 (* .1 (sin (* pi (/ 180) var2)) #+nil (expt (random 1.0) 4)) 0 (* 0 (random .02)) 0 1 0)
+    (glu:look-at 
+     7 
+     (+ 5 (* .2 (+ (* .9 (sin (* pi (/ 180) var2)))
+		   (sin (* pi (/ 180) var))))) 
+     2 
+     
+     (* .1 (sin (* pi (/ 180) var2)))            0        (* 0 (random .02)) 
+
+     0 1 0)
     #+nil (glu:look-at 1 8 1  
 		 0 0 0
 		 0 1 0)
     (clear :color-buffer :depth-buffer)
-   (enable :depth-test)
+   (enable :depth-test :normalize)
    (color 1 1 1)
    (progn
      (incf var 4)
@@ -316,44 +477,35 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
        (loop for i from 1 below 10 do (vertex 0 0 i) (vertex 0 10 i))
        (loop for i from 1 below 10 do (vertex i 0 0) (vertex i 0 10)))
      (color 1 1 1)
-    
-     ;(rotate 90 0 0 1)
-     
-     
+         
      (progn
       (unless *geometry-parameters*
 	(setf *geometry-parameters* (get-parameters-from-maxima)))
       (unless (find-if-not #'numberp *geometry-parameters*)
-       (destructuring-bind (ll gg d h1 a h2) *geometry-parameters*
-	 (let* ((alpha (* 30 (sin (* pi (/ 180) var2))))
+       (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
+	 (declare (ignorable ll))
+	 (let* ((alpha (+ 10 (* 10 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
 		(d3 (m* m-sys (make-vec (- (- gg (+ d a))) (+ h1 h2))))
 		(d4 (m* m-sys (make-vec (- a) (- h2)))))
 	  (with-pushed-matrix
-	    (color 1 1 1)
 	    (translate .3 .1 .7)
 	    (rotate -90 1 0 0)
 	    (let ((s .05))
 	      (scale s s s))
 
-	    (with-primitive :lines
+	    (with-primitive :lines ;; local coordinate system
 	      (color 1 0 0) (vertex 0 0) (vertex 20 0)
 	      (color 0 1 0) (vertex 0 0) (vertex 0 20)
 	      (color 0 0 1) (vertex 0 0) (vertex 0 0 20))
-	    (color 1 1 1)
+	    
+	    (with-primitive :line-strip  ;; optical axis
+	      (color 1 1 1) (vertex 0 0) (vertex-v d1)
+	      (vertex-v (v+ d1 d2)) (vertex-v (v+ (v+ d1 d2) d3))
+	      (vertex-v (v+ (v+ d1 d2) (v+ d3 d4))))
 
-	    ;(enable :line-stipple)
-	    (line-stipple 2 #b0001110001000111)
-	    (let ()
-	     (with-primitive :line-strip
-	       (vertex 0 0)
-	       (vertex-v d1)
-	       (vertex-v (v+ d1 d2))
-	       (vertex-v (v+ (v+ d1 d2) d3))
-	       (vertex-v (v+ (v+ d1 d2) (v+ d3 d4)))))
-	    (disable :line-stipple)
 	    (let ((angle1 (* -180 (/ pi)
 			     (acos (v. (v* -1d0 (normalize d1)) 
 				       (normalize d2)))))
@@ -363,19 +515,43 @@ solution:[ll,gg,d,sol[1][3],a,sol[1][4]];
 		  (angle3 (* 180 (/ pi)
 			     (acos (v. (v* -1d0 (normalize d3)) 
 				       (normalize d4))))))
-	      (draw-mirror (v) (+  alpha (* .5 angle1)))
+	      (draw-mirror (v) (+ (* .5 alpha) (* .5 angle1)) :normal-len 50d0)
 	      (draw-mirror  d1 (+ alpha 180 (* .5 angle1)))
 	      (draw-mirror  (v+ d2 d1) (+ alpha
 			      angle1
 			      (* .5 angle2)))
 	      (draw-mirror  (v+ (v+ d3 d2) d1)
 			    (+ alpha angle1 angle2 180
-			       (* .5 angle3)))))))))
+			       (* .5 angle3)))
+	      
+	      (multiple-value-bind (center dir)
+		  (get-point-along-polygon (list d1 d2 d3 d4) (* .99 ll .5 (+ 1 (sin (* var (/ 180) pi)))))
+		(draw-lens center 0))
+
+	      (defparameter *bla* (list d1 (norm d1) d2 gg f1
+					(multiple-value-list
+					      (get-point-along-polygon (list d1 d2 d3) f1))))
+
+#+nil	      (draw-lens)))))))
      
      (rotate (+ var (year w)) 0 1 0)
      (translate 3 0 0)
      (rotate (+ (* 8 var) (day w)) 0 1 0))
    (glut:swap-buffers)))
+
+(defun get-point-along-polygon (rvs l &key (start (v)))
+  "Given a polygon by relative vectors, find the point of the polygon
+at a circumference length l. Return this point and the current
+direction vector."
+  (let ((len 0))
+   (loop for p in rvs do
+	(incf len (norm p))
+	(when (< l len)
+	  (return-from get-point-along-polygon
+	    (values (v+ start (v* (- (norm p) (- len l)) (normalize p)))
+		    p)))
+	(setf start (v+ start p)))
+   (error "requested length not within circumference of given polygon.")))
 
 (defun vertex-v (v)
   (declare (type vec v))

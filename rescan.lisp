@@ -515,20 +515,25 @@ signal RAY-LOST."
 	      (let* ((dichroic-position (v* .5d0 d1))
 		     (ray (make-instance 'ray 
 					 :start (make-vec 0 
-							  (+ 2 (aref dichroic-position 1))
+							  (+ -2 (aref dichroic-position 1))
 							  0)
 					 :direction (v 1)))
 		     (dichroic (draw-mirror dichroic-position
 					    (+ (* -.5 alpha) 180 (elt angle 0))))
-		     (dichroic-isec (intersect ray dichroic)))
+		     (dichroic-isec (intersect ray dichroic))
+		     (ray1 (reflect ray dichroic))
+		     (mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
+					   (* .5 alpha)))
+		     (mirror1-isec (intersect ray1 mirror1)))
 		
 		(color .8 .4 .4)
 		(with-primitive :lines
 		  (vertex-v (slot-value ray 'start))
-		  (vertex-v dichroic-isec)))
+		  (vertex-v dichroic-isec)
+		  (vertex-v (slot-value ray1 'start))
+		  (vertex-v mirror1-isec)))
 
-	      (draw-mirror (v) ;; mirror 1 in bfp of objective
-			   (* .5 alpha))
+	      
 	      (draw-mirror  d1
 			    (+ (elt angle 1)
 			       (* .5 (- (elt angle 1) (elt angle 0)))

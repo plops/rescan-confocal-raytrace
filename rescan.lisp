@@ -427,6 +427,23 @@ signal RAY-LOST."
 		:center (v)
 		:normal (v 0 0 1)))
 
+(defun draw-coords ()
+       (line-width 3)
+      (with-primitive :lines
+	(color 1 0 0) (vertex 0 0) (vertex 2 0)
+	(color 0 1 0) (vertex 0 0) (vertex 0 2)
+	(color 0 0 1) (vertex 0 0) (vertex 0 0 2))
+      (line-width 1)
+      (with-primitive :lines
+	(color .6 0 0) (vertex 0 0) (vertex 10 0)
+	(color 0 .6 0) (vertex 0 0) (vertex 0 10)
+	(color 0 0 .6) (vertex 0 0) (vertex 0 0 10))
+      (color .2 .2 .1)
+      (with-primitive :lines
+	(loop for i from 1 below 10 do (vertex 0 i) (vertex 10 i))
+	(loop for i from 1 below 10 do (vertex 0 0 i) (vertex 0 10 i))
+	(loop for i from 1 below 10 do (vertex i 0 0) (vertex i 0 10))))
+
 (let ((var 0)
       (var2 0))
   (defun draw (w)
@@ -461,21 +478,7 @@ signal RAY-LOST."
        (setf var2 0)))
    (with-pushed-matrix
      (rotate (+ 20 (* 1.8 (+ (* .1 (sin (* pi (/ 180d0) var))) (sin (* pi (/ 180d0) var2))))) 0 1 0)
-     (line-width 3)
-     (with-primitive :lines
-       (color 1 0 0) (vertex 0 0) (vertex 2 0)
-       (color 0 1 0) (vertex 0 0) (vertex 0 2)
-       (color 0 0 1) (vertex 0 0) (vertex 0 0 2))
-     (line-width 1)
-     (with-primitive :lines
-       (color .6 0 0) (vertex 0 0) (vertex 10 0)
-       (color 0 .6 0) (vertex 0 0) (vertex 0 10)
-       (color 0 0 .6) (vertex 0 0) (vertex 0 0 10))
-     (color .2 .2 .1)
-     (with-primitive :lines
-       (loop for i from 1 below 10 do (vertex 0 i) (vertex 10 i))
-       (loop for i from 1 below 10 do (vertex 0 0 i) (vertex 0 10 i))
-       (loop for i from 1 below 10 do (vertex i 0 0) (vertex i 0 10)))
+     (draw-coords)
      (color 1 1 1)
          
      (progn
@@ -484,7 +487,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 10 (* 0 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 0 (* 10 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -493,7 +496,7 @@ signal RAY-LOST."
 	  (with-pushed-matrix
 	    (translate .3 .1 .7)
 	    (rotate -90 1 0 0)
-	    (let ((s .05))
+	    (let ((s .045))
 	      (scale s s s))
 
 	    (with-primitive :lines ;; local coordinate system
@@ -506,30 +509,23 @@ signal RAY-LOST."
 	      (vertex-v (v+ d1 d2)) (vertex-v (v+ (v+ d1 d2) d3))
 	      (vertex-v (v+ (v+ d1 d2) (v+ d3 d4))))
 
-	    (let ((angle1 (* -180 (/ pi)
-			     (acos (v. (v* -1d0 (normalize d1)) 
-				       (normalize d2)))))
-		  (angle2 (* -180 (/ pi)
-				(acos (v. (v* -1d0 (normalize d2)) 
-					  (normalize d3)))))
-		  (angle3 (* 180 (/ pi)
-			     (acos (v. (v* -1d0 (normalize d3)) 
-				       (normalize d4))))))
+	    (let ((angle  (loop for e in (list d1 d2 d3 d4) collect
+			       (* -180 (/ pi)
+				  (atan (aref e 1) (aref e 0))))))
 	      (draw-mirror (v) 
-			   (+ (* .5 alpha) (* .5 angle1))
-			   :normal-len 50d0)
+			   (* .5 alpha))
 	      (draw-mirror  d1
-			    (+ alpha
-			       180
-			       (* .5 angle1)))
+			    (+ (elt angle 1)
+			       (* .5 (- (elt angle 1) (elt angle 0)))
+			       ))
 	      (draw-mirror  (v+ d2 d1) 
-			    (+ alpha
-			       angle1
-			       (* .5 angle2)))
+			    (+ (elt angle 2)	
+			       (+ 180 (* -.5 (- (elt angle 2) 
+						(+ 180 (elt angle 1)))))))
 	      (draw-mirror  (v+ (v+ d3 d2) d1)
-			    (+ alpha angle1 angle2 
-			       180
-			       (* .5 angle3)))
+			    (+ (elt angle 3)
+			       (+  (* -.5 (- (elt angle 3) 
+						(+ 180 (elt angle 2)))))))
 	      
 	      (multiple-value-bind (center angle)
 		  (get-point-along-polygon (list d1 d2 d3 d4) (* .99 ll .5 (+ 1 (sin (* var2 (/ 180) pi)))))
@@ -543,8 +539,10 @@ signal RAY-LOST."
      (translate 3 0 0)
      (rotate (+ (* 8 var) (day w)) 0 1 0))
    (glut:swap-buffers)))
-
-(loop for e in *bla* collect (* 180 (/ pi) (atan (aref e 1) (aref e 0))))
+0 -98 116 -105
+(loop for e in *bla* collect
+     (* 180 (/ pi)
+	(atan (aref e 1) (aref e 0))))
 
 (defun get-point-along-polygon (rvs l &key (start (v)))
   "Given a polygon by relative vectors, find the point of the polygon

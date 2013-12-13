@@ -272,10 +272,12 @@ solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
     (line-width 1)
     (make-instance 'disk :center center :normal n :radius 5d0)))
 
-(defun draw-lens (center angle &key (normal-len 10d0))
+(defun draw-lens (center angle &key (f 10d0)  (normal-len 10d0))
   (declare (type vec center))
-  (draw-mirror center angle :normal-len normal-len)
-  angle)
+  (with-slots (center normal radius)
+      (draw-mirror center angle :normal-len normal-len)
+    (make-instance 'lens :center center :normal normal :radius radius
+		   :focal-length f)))
 
 (defclass disk ()
   ((center :accessor disk-center :initarg :center 
@@ -369,8 +371,16 @@ condition RAY-LOST is signalled."
 	  (error 'ray-lost))
 	(make-instance 'ray
 		       :start intersection
-		       :direction (v- (v* (/ focal-length cosphi) direction)
-				      rho))))))
+		       :direction (normalize 
+				   (v- (v* (/ focal-length cosphi) direction)
+				       rho)))))))
+
+(defgeneric reverse-normal (object))
+(defmethod reverse-normal ((lens lens))
+  "Reverse the normal in a lens object."
+  (with-slots (center normal radius focal-length) lens
+   (make-instance 'lens :center center :normal (v* -1d0 normal)
+		  :radius radius :focal-length focal-length)))
 #+nil
 (handler-case 
     (refract (make-instance 'ray :start (v 0 .1 -10)
@@ -450,7 +460,7 @@ signal RAY-LOST."
     (enable :line-smooth)
     (blend-func :src-alpha :one-minus-src-alpha)
 					;   (reshape w (planet-window-wi))
-    (clear-color .4 .5 .3 0)
+    (clear-color .8 .7 .3 0)
     (matrix-mode :modelview)
     (load-identity)
     #+nil (glu:look-at 
@@ -520,18 +530,41 @@ signal RAY-LOST."
 					 :direction (v 1)))
 		     (dichroic (draw-mirror dichroic-position
 					    (+ (* -.5 alpha) 180 (elt angle 0))))
-		     (dichroic-isec (intersect ray dichroic))
 		     (ray1 (reflect ray dichroic))
 		     (mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
 					   (* .5 alpha)))
-		     (mirror1-isec (intersect ray1 mirror1)))
+		     (ray2 (reflect ray1 mirror1))
+		     (f-obj 10)
+		     (objective (draw-lens (make-vec f-obj) 0 :f f-obj))
+		     (ray3 (refract ray2 objective))
+		     (sample-mirror (draw-mirror (make-vec (* 2 f-obj)) 180))
+
+		     (ray4 (reflect ray3 sample-mirror))
+
+		     (ray5 (refract ray4 (reverse-normal objective)))
+		     (ray6 (reflect ray5 mirror1)))
 		
-		(color .8 .4 .4)
+		(color .6 .3 .3)
 		(with-primitive :lines
 		  (vertex-v (slot-value ray 'start))
-		  (vertex-v dichroic-isec)
+		  (vertex-v (intersect ray dichroic))
+
 		  (vertex-v (slot-value ray1 'start))
-		  (vertex-v mirror1-isec)))
+		  (vertex-v (intersect ray1 mirror1))
+
+		  (vertex-v (slot-value ray2 'start))
+		  (vertex-v (intersect ray2 objective))
+
+		  (vertex-v (slot-value ray3 'start))
+		  (vertex-v (intersect ray3 sample-mirror))
+
+		  (vertex-v (slot-value ray4 'start))
+		  (vertex-v (intersect ray4 objective))
+		  
+		  (vertex-v (slot-value ray5 'start))
+		  (vertex-v (intersect ray5 mirror1))
+		  
+		  ))
 
 	      
 	      (draw-mirror  d1
@@ -556,17 +589,7 @@ signal RAY-LOST."
 	      (multiple-value-bind (center angle)
 		  (get-point-along-polygon (list d1 d2 d3 d4) (+ f1 f1 f2))
 		;; second lens
-		(draw-lens center angle))
-	      (let ((f-obj 10))
-		;; objective
-	       (draw-lens (make-vec f-obj) 0)
-	       ;; mirror in sample plane
-	       (draw-mirror (make-vec (* 2 f-obj)) 180))
-	      
-
-	      
-	      
-	      )))))))
+		(draw-lens center angle)))))))))
    (glut:swap-buffers)))
 
 (defun get-point-along-polygon (rvs l &key (start (v)))

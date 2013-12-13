@@ -229,8 +229,16 @@ solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
 	      (read-from-string data nil nil :start num-start)
 	    (setf num-start (1+ new-num-start))
 	    val)))))
+;; NOTE: when changing thes following parameters, the order of mirrors
+;; and lenses might change, i haven't programmed an automatic
+;; estimation of the raytracing sequence so far
+
+;; a .. main line (mirror1 to mirror2) as a fraction of the full circumference of the polygon [0.. 0.5]
+;; b .. project connection between mirror 2 and mirror3 onto main line (mirror 1 and mirror 2), in relation to length of main line [0..1]
+;; c .. project connection between mirror 1 and mirror4 onto main line (mirror 1 and mirror 2), in relation to length of main line [0..1]
+;; d .. relative size between distance (height) of mirror 3 from the main line and the distance of mirror 4 from the main line
 #+nil
-(defparameter *geometry-parameters* (get-parameters-from-maxima :a .25 :b .1 :c .2 :d 1))
+(defparameter *geometry-parameters* (get-parameters-from-maxima :a .4 :b .3 :c .055 :d 2.4))
 
 
 (defvar *geometry-parameters* (list 50 100
@@ -507,7 +515,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 0 (* 90 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 30 (* 0 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -531,12 +539,12 @@ signal RAY-LOST."
 	    (let* ((angle  (loop for e in (list d1 d2 d3 d4) collect
 				(* -180 (/ pi)
 				   (atan (aref e 1) (aref e 0)))))
-		   (dichroic-position (v* .5d0 d1))
+		   (dichroic-position (v* .25d0 d1))
 		   (dichroic (draw-mirror dichroic-position
 					  (+ (* -.5 alpha) 180 (elt angle 0))))
 		   (ray (make-instance 'ray 
 				       :start (make-vec 0 
-							(+ .1 (aref dichroic-position 1))
+							(+ .0 (aref dichroic-position 1))
 							0)
 				       :direction (v 1)))
 		   (mirror1-undeflected (draw-mirror (v) ;; mirror 1 in bfp of objective in its neutral position
@@ -584,8 +592,8 @@ signal RAY-LOST."
 		   (camera (draw-mirror camera-center
 					camera-angle))
 		   (scan-positions ()))
-	      (loop for deflection-angle-y from -3 upto 3 do
-	       (loop for deflection-angle from -3 upto 3 do
+	      (loop for deflection-angle-y from -3 upto 3 by .5 do
+	       (loop for deflection-angle from -3 upto 3 by .5 do
 		    (let* ((mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
 						 (+ deflection-angle (* .5 alpha))
 						 :angle-y deflection-angle-y))
@@ -604,7 +612,7 @@ signal RAY-LOST."
 			   (ray13 (refract ray12 tubelens)))
 		
 		      
-		      (line-width 1)
+		      (line-width .5)
 		      (let ((sample (intersect-in-plane ray3 sample-mirror))
 			    (camera (intersect-in-plane ray13 camera)))
 			(push (list sample camera deflection-angle deflection-angle-y) scan-positions))
@@ -656,6 +664,8 @@ signal RAY-LOST."
 		      (with-pushed-matrix
 			(rotate 90 0 1 0)
 			
+			(defparameter *la* scan-positions)
+
 			(let ((s 40))
 			 (scale s s s))
 			(translate -1 0 0)

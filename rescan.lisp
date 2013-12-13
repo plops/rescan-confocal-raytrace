@@ -473,7 +473,7 @@ signal RAY-LOST."
     (clear-color .8 .7 .3 0)
     (matrix-mode :modelview)
     (load-identity)
-    #+nil (glu:look-at 
+    (glu:look-at 
      7 
      (+ 5 (* .2 (+ (* .9 (sin (* pi (/ 180) var2)))
 		   (sin (* pi (/ 180) var))))) 
@@ -482,7 +482,7 @@ signal RAY-LOST."
      (* .1 (sin (* pi (/ 180) var2)))            0        (* 0 (random .02)) 
 
      0 1 0)
-    (glu:look-at 2 5 1.2  
+    #+nil (glu:look-at 2 5 1.2  
 		 2 0 1
 		 0 1 0)
     (clear :color-buffer :depth-buffer)
@@ -507,7 +507,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 10 (* 0 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 20 (* 0 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -583,72 +583,73 @@ signal RAY-LOST."
 					:f f-tl))
 		   (camera (draw-mirror camera-center
 					camera-angle)))
-	      (let* ((mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
-					   (+  (* .5 alpha))))
-		     (ray1 (reflect ray dichroic))
-		     (ray2 (reflect ray1 mirror1))
-		     (ray3 (refract ray2 objective))
-		     (ray4 (reflect ray3 sample-mirror))
-		     (ray5 (refract ray4 (reverse-normal objective)))
-		     (ray6 (reflect ray5 mirror1))
-		     (ray7 (refract ray6 lens1))
-		     (ray8 (reflect ray7 mirror2))
-		     (ray9 (reflect ray8 mirror3))
-		     (ray10 (refract ray9 lens2))
-		     (ray11 (reflect ray10 mirror4))
-		     (ray12 (reflect ray11 mirror1))
-		     (ray13 (refract ray12 tubelens)))
+	      (loop for deflection-angle from -3 upto 3 do
+	       (let* ((mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
+					    (+ deflection-angle (* .5 alpha))))
+		      (ray1 (reflect ray dichroic))
+		      (ray2 (reflect ray1 mirror1))
+		      (ray3 (refract ray2 objective))
+		      (ray4 (reflect ray3 sample-mirror))
+		      (ray5 (refract ray4 (reverse-normal objective)))
+		      (ray6 (reflect ray5 mirror1))
+		      (ray7 (refract ray6 lens1))
+		      (ray8 (reflect ray7 mirror2))
+		      (ray9 (reflect ray8 mirror3))
+		      (ray10 (refract ray9 lens2))
+		      (ray11 (reflect ray10 mirror4))
+		      (ray12 (reflect ray11 mirror1))
+		      (ray13 (refract ray12 tubelens)))
 		
-		(color .6 .3 .3)
-		(line-width 1)
-		(let ((a (intersect-in-plane ray3 sample-mirror))
-		      (b (intersect-in-plane ray13 camera)))
-		  (format t "~18,15f ~18,15f ~18,15f ~18,15f~%"
-			  (aref a 0) (aref a 1)
-			  (aref b 0) (aref b 1)))
-		(with-primitive :lines
-		  (vertex-v (slot-value ray 'start))
-		  (vertex-v (intersect ray dichroic))
+		 (color .6 .3 .3)
+		 (line-width 1)
+		 (let ((a (intersect-in-plane ray3 sample-mirror))
+		       (b (intersect-in-plane ray13 camera)))
+		   (format t "~18,15f ~18,15f ~18,15f ~18,15f~%"
+			   (aref a 0) (aref a 1)
+			   (aref b 0) (aref b 1)))
+		 (with-primitive :lines
+		   (vertex-v (slot-value ray 'start))
+		   (vertex-v (intersect ray dichroic))
 
-		  (vertex-v (slot-value ray1 'start))
-		  (vertex-v (intersect ray1 mirror1))
+		   (vertex-v (slot-value ray1 'start))
+		   (vertex-v (intersect ray1 mirror1))
 
-		  (vertex-v (slot-value ray2 'start))
-		  (vertex-v (intersect ray2 objective))
+		   (vertex-v (slot-value ray2 'start))
+		   (vertex-v (intersect ray2 objective))
 
-		  (vertex-v (slot-value ray3 'start))
-		  (vertex-v (intersect ray3 sample-mirror))
+		   (vertex-v (slot-value ray3 'start))
+		   (vertex-v (intersect ray3 sample-mirror))
 
-		  (vertex-v (slot-value ray4 'start))
-		  (vertex-v (intersect ray4 objective))
+		   (vertex-v (slot-value ray4 'start))
+		   (vertex-v (intersect ray4 objective))
 		  
-		  (vertex-v (slot-value ray5 'start))
-		  (vertex-v (intersect ray5 mirror1))
+		   (vertex-v (slot-value ray5 'start))
+		   (vertex-v (intersect ray5 mirror1))
 		  
-		  (vertex-v (slot-value ray6 'start))
-		  (vertex-v (intersect ray6 lens1))
+		   (vertex-v (slot-value ray6 'start))
+		   (vertex-v (intersect ray6 lens1))
 
-		  (vertex-v (slot-value ray7 'start))
-		  (vertex-v (intersect ray7 mirror2))
+		   (vertex-v (slot-value ray7 'start))
+		   (vertex-v (intersect ray7 mirror2))
 
-		  (vertex-v (slot-value ray8 'start))
-		  (vertex-v (intersect ray8 mirror3))
+		   (vertex-v (slot-value ray8 'start))
+		   (vertex-v (intersect ray8 mirror3))
 
-		  (vertex-v (slot-value ray9 'start))
-		  (vertex-v (intersect ray9 lens2))
+		   (vertex-v (slot-value ray9 'start))
+		   (vertex-v (intersect ray9 lens2))
 
-		  (vertex-v (slot-value ray10 'start))
-		  (vertex-v (intersect ray10 mirror4))
+		   (vertex-v (slot-value ray10 'start))
+		   (vertex-v (intersect ray10 mirror4))
 		  
-		  (vertex-v (slot-value ray11 'start))
-		  (vertex-v (intersect ray11 mirror1))
+		   (vertex-v (slot-value ray11 'start))
+		   (vertex-v (intersect ray11 mirror1))
 
-		  (vertex-v (slot-value ray12 'start))
-		  (vertex-v (intersect ray12 tubelens))
+		   (vertex-v (slot-value ray12 'start))
+		   (vertex-v (intersect ray12 tubelens))
 		  
-		  (vertex-v (slot-value ray13 'start))
-		  (vertex-v (intersect ray13 camera))
-		  )))
+		   (vertex-v (slot-value ray13 'start))
+		   (vertex-v (intersect ray13 camera))
+		   ))))
 	    ))))))
    (glut:swap-buffers)))
 

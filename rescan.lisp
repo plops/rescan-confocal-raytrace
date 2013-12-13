@@ -356,9 +356,9 @@ solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
 
 (defmethod refract ((ray ray) (lens lens))
   "Return new ray after refraction on thin lens. In general you will
-have to normalize its direction. The refraction on an objective needs
-the non-normalized result. When the ray doesn't hit the lens the
-condition RAY-LOST is signalled."
+have to normalize its direction. The normal of the lens must be
+directed in the direction the light travels. When the ray doesn't hit
+the lens the condition RAY-LOST is signalled."
   (declare (values ray &optional))
   (with-slots (start direction) ray
     (with-slots (center normal focal-length radius) lens
@@ -367,7 +367,7 @@ condition RAY-LOST is signalled."
       (let* ((intersection (intersect ray lens))
 	     (rho (v- intersection center))
 	     (cosphi (v. normal direction)))
-	(when (< radius (norm rho))
+	#+nil (when (< radius (norm rho))
 	  (error 'ray-lost))
 	(make-instance 'ray
 		       :start intersection
@@ -420,7 +420,7 @@ signal RAY-LOST."
      (assert (< (abs (- 1 (norm normal))) 1e-12))
      (assert (< (abs (- 1 (norm direction))) 1e-12))
      (let ((intersection (intersect ray disk)))
-       (when (< (norm (v- intersection center)) radius)
+       #+nil (when (< (norm (v- intersection center)) radius)
 	 (signal 'ray-lost))
        (let ((dir (v+ direction (v* (* -2d0 (v. direction normal))
 					normal))))
@@ -525,7 +525,7 @@ signal RAY-LOST."
 	      (let* ((dichroic-position (v* .5d0 d1))
 		     (ray (make-instance 'ray 
 					 :start (make-vec 0 
-							  (+ -2 (aref dichroic-position 1))
+							  (+ .1 (aref dichroic-position 1))
 							  0)
 					 :direction (v 1)))
 		     (dichroic (draw-mirror dichroic-position
@@ -542,9 +542,42 @@ signal RAY-LOST."
 		     (ray4 (reflect ray3 sample-mirror))
 
 		     (ray5 (refract ray4 (reverse-normal objective)))
-		     (ray6 (reflect ray5 mirror1)))
+		     (ray6 (reflect ray5 mirror1))
+		     
+		     (lens1 (multiple-value-bind (center angle)
+				(get-point-along-polygon (list d1 d2 d3 d4) f1)
+			      (draw-lens center angle)))
+		     (ray7 (refract ray6 lens1))
+
+		     (mirror2 (draw-mirror  d1 
+					    (+ (elt angle 1)
+					       (+ (* -.5 
+							 (- (elt angle 1) 
+ 							    (+ 180 (elt angle 0))))))))
+
+		     (ray8 (reflect ray7 mirror2))
+		     (mirror3 (draw-mirror  (v+ d2 d1) 
+					    (+ (elt angle 2)	
+					       (+ 180 (* -.5 
+							 (- (elt angle 2) 
+							    (+ 180 (elt angle 1))))))))
+		     
+		     (ray9 (reflect ray8 mirror3))
+		     (lens2 (multiple-value-bind (center angle)
+				(get-point-along-polygon (list d1 d2 d3 d4) (+ f1 f1 f2))
+			      (draw-lens center angle :f f2)))
+		     (ray10 (refract ray9 lens2))
+		     
+		     (mirror4 (draw-mirror  (v+ (v+ d3 d2) d1)
+					    (+ (elt angle 3)
+					       (+  (* -.5 (- (elt angle 3) 
+							     (+ 180 (elt angle 2))))))))
+		     (ray11 (reflect ray10 mirror4))
+		     
+		     (ray12 (reflect ray11 mirror1)))
 		
 		(color .6 .3 .3)
+		(line-width 1)
 		(with-primitive :lines
 		  (vertex-v (slot-value ray 'start))
 		  (vertex-v (intersect ray dichroic))
@@ -564,32 +597,31 @@ signal RAY-LOST."
 		  (vertex-v (slot-value ray5 'start))
 		  (vertex-v (intersect ray5 mirror1))
 		  
-		  ))
+		  (vertex-v (slot-value ray6 'start))
+		  (vertex-v (intersect ray6 lens1))
 
-	      
-	      (draw-mirror  d1
-			    (+ (elt angle 1)
-			       (* .5 (- (elt angle 1) (elt angle 0)))
-			       ))
-	      (draw-mirror  (v+ d2 d1) 
-			    (+ (elt angle 2)	
-			       (+ 180 (* -.5 (- (elt angle 2) 
-						(+ 180 (elt angle 1)))))))
-	      (draw-mirror  (v+ (v+ d3 d2) d1)
-			    (+ (elt angle 3)
-			       (+  (* -.5 (- (elt angle 3) 
-						(+ 180 (elt angle 2)))))))
-	      
-	      
-	      
-	      (multiple-value-bind (center angle)
-		  (get-point-along-polygon (list d1 d2 d3 d4) f1)
-		;; first lens
-		(draw-lens center angle))
-	      (multiple-value-bind (center angle)
-		  (get-point-along-polygon (list d1 d2 d3 d4) (+ f1 f1 f2))
-		;; second lens
-		(draw-lens center angle)))))))))
+		  (vertex-v (slot-value ray7 'start))
+		  (vertex-v (intersect ray7 mirror2))
+
+		  (vertex-v (slot-value ray8 'start))
+		  (vertex-v (intersect ray8 mirror3))
+
+		  (vertex-v (slot-value ray9 'start))
+		  (vertex-v (intersect ray9 lens2))
+
+		  (vertex-v (slot-value ray10 'start))
+		  (vertex-v (intersect ray10 mirror4))
+		  
+		  (vertex-v (slot-value ray11 'start))
+		  (vertex-v (intersect ray11 mirror1))
+
+		  (with-slots (start direction) ray12
+		    (vertex-v start)
+		    (vertex-v (v+ start (v* 30d0 direction))))
+		  
+
+		  ))
+	      )))))))
    (glut:swap-buffers)))
 
 (defun get-point-along-polygon (rvs l &key (start (v)))

@@ -328,6 +328,16 @@ solution:[f1,f2,ll,gg,d,sol[1][3],a,sol[1][4]];
  (make-instance 'ray :start (v 0 1 -1) :direction (v 0 0 1))
  (make-instance 'plane :normal (v 0 0 1) :center (v)))
 
+(defmethod intersect-in-plane ((ray ray) (disk disk) &key (up (v 0 1)))
+  "Find the point where a ray intersects a plane, return point in the
+2D coordinate system of the disk."
+  #+sbcl (declare (values vec &optional))
+  (with-slots (center normal) disk
+    (let* ((isec (intersect ray disk))
+	   (rho (v- isec center))
+	   (x (v. rho (vx up normal)))
+	   (y (v. rho up)))
+      (make-vec x y))))
 
 (define-condition ray-lost () ())
 
@@ -497,7 +507,7 @@ signal RAY-LOST."
       (unless (find-if-not #'numberp *geometry-parameters*)
        (destructuring-bind (f1 f2 ll gg d h1 a h2) *geometry-parameters*
 	 (declare (ignorable ll))
-	 (let* ((alpha (+ 30 (* 0 (sin (* pi (/ 180) var2)))))
+	 (let* ((alpha (+ 10 (* 0 (sin (* pi (/ 180) var2)))))
 		(m-sys (rotation-matrix alpha (v  0 0 1)))
 		(d1 (m* m-sys (make-vec gg)))
 		(d2 (m* m-sys (make-vec (- d) (- h1))))
@@ -532,7 +542,9 @@ signal RAY-LOST."
 					    (+ (* -.5 alpha) 180 (elt angle 0))))
 		     (ray1 (reflect ray dichroic))
 		     (mirror1 (draw-mirror (v) ;; mirror 1 in bfp of objective
-					   (* .5 alpha)))
+					   (+  (* .5 alpha))))
+		     (mirror1-undeflected (draw-mirror (v) ;; mirror 1 in bfp of objective in its neutral position
+						       (* .5 alpha)))
 		     (ray2 (reflect ray1 mirror1))
 		     (f-obj 10)
 		     (objective (draw-lens (make-vec f-obj) 0 :f f-obj))
@@ -574,10 +586,35 @@ signal RAY-LOST."
 							     (+ 180 (elt angle 2))))))))
 		     (ray11 (reflect ray10 mirror4))
 		     
-		     (ray12 (reflect ray11 mirror1)))
+		     (ray12 (reflect ray11 mirror1))
+		     
+		     (f-tl 25d0)
+		     (d4r (reflect
+			   (make-instance 'ray
+					  :start (slot-value mirror4 'center)
+					  :direction (normalize d4))
+			   mirror1-undeflected))
+		     (tl-center (with-slots (start direction) d4r
+				  (v+ start (v* f-tl direction))))
+		     (camera-center (with-slots (start direction) d4r
+				      (v+ start (v* (* 2 f-tl) direction))))
+		     (camera-angle (with-slots (start direction) d4r
+				     (* -180 (/ pi)
+				      (atan (aref direction 1) (aref direction 0)))))
+		     (tubelens (draw-lens tl-center
+					  camera-angle
+					  :f f-tl))
+		     (camera (draw-mirror camera-center
+					camera-angle))
+		     (ray13 (refract ray12 tubelens)))
 		
 		(color .6 .3 .3)
 		(line-width 1)
+		(let ((a (intersect-in-plane ray3 sample-mirror))
+		      (b (intersect-in-plane ray13 camera)))
+		  (format t "~18,15f ~18,15f ~18,15f ~18,15f~%"
+			  (aref a 0) (aref a 1)
+			  (aref b 0) (aref b 1)))
 		(with-primitive :lines
 		  (vertex-v (slot-value ray 'start))
 		  (vertex-v (intersect ray dichroic))
@@ -615,9 +652,12 @@ signal RAY-LOST."
 		  (vertex-v (slot-value ray11 'start))
 		  (vertex-v (intersect ray11 mirror1))
 
-		  (with-slots (start direction) ray12
-		    (vertex-v start)
-		    (vertex-v (v+ start (v* 30d0 direction))))
+		  (vertex-v (slot-value ray12 'start))
+		  (vertex-v (intersect ray12 tubelens))
+		  
+		  (vertex-v (slot-value ray13 'start))
+		  (vertex-v (intersect ray13 camera))
+		  
 		  
 
 		  ))
